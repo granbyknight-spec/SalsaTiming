@@ -113,6 +113,39 @@
     </noscript>
     <!-- The root element for your Expo app. -->
     <div id="root"></div>
-  <script src="/SalsaTiming/expo/static/js/web/index-d85add450fc81cdc3e9693be27821565.js" defer></script>
+    <div id="diag" style="position:fixed;top:0;left:0;right:0;bottom:0;background:#1a1a2e;color:#fff;font-family:Helvetica,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;padding:24px;text-align:center;">
+      <p style="font-size:20px;font-weight:700;">Loading Salsa Timing...</p>
+      <p id="diag-status" style="font-size:13px;color:#8899aa;margin-top:8px;">Waiting for JS bundle...</p>
+    </div>
+    <script>
+      // Diagnostic: catch any errors before/during bundle load
+      window.onerror = function(msg, src, line, col, err) {
+        var d = document.getElementById('diag');
+        if (d) {
+          d.innerHTML = '<p style="font-size:20px;font-weight:700;color:#e94560;">JS Error</p>' +
+            '<p style="font-size:14px;color:#ccc;margin-top:12px;word-break:break-all;">' + msg + '</p>' +
+            '<p style="font-size:12px;color:#8899aa;margin-top:8px;">Source: ' + (src||'unknown') + ':' + (line||'?') + '</p>';
+        }
+      };
+      window.addEventListener('unhandledrejection', function(e) {
+        var d = document.getElementById('diag');
+        if (d) {
+          d.innerHTML = '<p style="font-size:20px;font-weight:700;color:#e94560;">Promise Error</p>' +
+            '<p style="font-size:14px;color:#ccc;margin-top:12px;word-break:break-all;">' + (e.reason && e.reason.message ? e.reason.message : String(e.reason)) + '</p>';
+        }
+      });
+      // Hide diagnostic overlay once React renders content into #root
+      var obs = new MutationObserver(function() {
+        var root = document.getElementById('root');
+        if (root && root.children.length > 0) {
+          var d = document.getElementById('diag');
+          if (d) d.style.display = 'none';
+          obs.disconnect();
+        }
+      });
+      obs.observe(document.getElementById('root'), { childList: true });
+    </script>
+    <script>document.getElementById('diag-status').textContent = 'Bundle loading...';</script>
+    <script src="/SalsaTiming/expo/static/js/web/index-d85add450fc81cdc3e9693be27821565.js" defer></script>
 </body>
 </html>
