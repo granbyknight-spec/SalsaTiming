@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "Salsa On2 and On1 Timing",
+    "slug": "salsa-timing-app",
+    "version": "1.0.0",
+    "platforms": ["ios", "web"],
+    "ios": {
+      "infoPlist": {
+        "UIBackgroundModes": ["audio"]
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
