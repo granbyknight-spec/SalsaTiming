@@ -1,6 +1,5 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { View, Text, ScrollView, StyleSheet, StatusBar } from 'react-native';
-import { initSequencer } from '../engine/sequencer';
 
 import BeatIndicator from './BeatIndicator';
 import BPMControl from './BPMControl';
@@ -12,12 +11,6 @@ import TrackMixer from './TrackMixer';
 // MainPlayer — top-level screen assembling all player components
 // ---------------------------------------------------------------------------
 const MainPlayer: React.FC = () => {
-  // Initialize the audio sequencer once on mount
-  useEffect(() => {
-    initSequencer().catch((err) => {
-      console.warn('[MainPlayer] Failed to initialise sequencer:', err);
-    });
-  }, []);
 
   return (
     <View style={styles.screen}>

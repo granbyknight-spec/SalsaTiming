@@ -64,7 +64,7 @@ function clampBPM(bpm: number): number {
  */
 async function safeLoadPlayer(url: string): Promise<Tone.Player | null> {
   try {
-    const player = new Tone.Player(url);
+    const player = new Tone.Player();
     await player.load(url);
     return player;
   } catch {
@@ -246,6 +246,7 @@ export function stopSequencer(): void {
   }
 
   currentStep = 0;
+  appStore.getState().setCurrentStep(0);
 }
 
 /**

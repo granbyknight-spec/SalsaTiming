@@ -10,13 +10,17 @@ const PlayButton: React.FC = () => {
   const isPlaying = useAppStore((s) => s.isPlaying);
   const setPlaying = useAppStore((s) => s.setPlaying);
 
-  const handlePress = useCallback(() => {
+  const handlePress = useCallback(async () => {
     if (isPlaying) {
       stopSequencer();
       setPlaying(false);
     } else {
-      startSequencer();
-      setPlaying(true);
+      try {
+        await startSequencer();
+        setPlaying(true);
+      } catch (err) {
+        console.error('[PlayButton] Failed to start sequencer:', err);
+      }
     }
   }, [isPlaying, setPlaying]);
 
