@@ -89,3 +89,25 @@ export const VOICE_FILE_MAP: Record<string, string> = {
   '&1': 'voice_and_one',
   '&5': 'voice_and_five',
 };
+
+// ---------------------------------------------------------------------------
+// Voice emphasis — gain multiplier per mode per cue.
+// Cues not listed default to 1.0 (no change).
+// Values > 1.0 create a "spike" — louder than surrounding counts.
+// ---------------------------------------------------------------------------
+export const voiceEmphasis: Partial<Record<TimingMode, Record<string, number>>> = {
+  on2_soft_mambo: { '2': 1.5, '6': 1.5 },
+};
+
+// ---------------------------------------------------------------------------
+// Per-cue playback speed multiplier (stacks on top of tempo scaling).
+// Compound cues like "&1" / "&5" must be spoken faster so they finish
+// before the next beat arrives.
+// ---------------------------------------------------------------------------
+export const VOICE_SPEED_OVERRIDES: Record<string, number> = {
+  '&1': 1.3,
+  '&5': 1.3,
+};
+
+/** Reference BPM at which voice samples sound natural without rate adjustment. */
+export const VOICE_REFERENCE_BPM = 100;

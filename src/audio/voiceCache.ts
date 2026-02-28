@@ -18,7 +18,7 @@
 const ELEVENLABS_API_BASE = 'https://api.elevenlabs.io/v1';
 const VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel
 const MODEL_ID = 'eleven_turbo_v2';
-const CACHE_NAME = 'salsa-timing-voice-cache-v1';
+const CACHE_NAME = 'salsa-timing-voice-cache-v2';
 
 /**
  * Maps each voice cue key (as used in VOICE_FILE_MAP / patterns) to:
@@ -27,15 +27,15 @@ const CACHE_NAME = 'salsa-timing-voice-cache-v1';
  */
 const VOICE_CUES: { key: string; text: string; filename: string }[] = [
   { key: '1', text: 'one', filename: 'voice_one.mp3' },
-  { key: '2', text: 'two', filename: 'voice_two.mp3' },
+  { key: '2', text: 'TWO!', filename: 'voice_two.mp3' },
   { key: '3', text: 'three', filename: 'voice_three.mp3' },
   { key: '4', text: 'four', filename: 'voice_four.mp3' },
   { key: '5', text: 'five', filename: 'voice_five.mp3' },
-  { key: '6', text: 'six', filename: 'voice_six.mp3' },
+  { key: '6', text: 'SIX!', filename: 'voice_six.mp3' },
   { key: '7', text: 'seven', filename: 'voice_seven.mp3' },
   { key: '8', text: 'eight', filename: 'voice_eight.mp3' },
-  { key: '&1', text: 'and one', filename: 'voice_and_one.mp3' },
-  { key: '&5', text: 'and five', filename: 'voice_and_five.mp3' },
+  { key: '&1', text: 'and-one', filename: 'voice_and_one.mp3' },
+  { key: '&5', text: 'and-five', filename: 'voice_and_five.mp3' },
 ];
 
 // ---------------------------------------------------------------------------

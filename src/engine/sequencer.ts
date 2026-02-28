@@ -14,6 +14,9 @@ import {
   congaPattern,
   voicePatterns,
   VOICE_FILE_MAP,
+  voiceEmphasis,
+  VOICE_SPEED_OVERRIDES,
+  VOICE_REFERENCE_BPM,
   type TimingMode,
 } from './patterns';
 import { appStore } from '../store/appStore';
@@ -28,10 +31,10 @@ const TOTAL_STEPS = 16;
 
 // ---- Module state ---------------------------------------------------------
 
-/** Percussion synths (no file loading required) */
+/** Percussion — cowbell is synthesized, congas use samples */
 let cowbellSynth: Tone.MetalSynth | null = null;
-let congaSlapSynth: Tone.MembraneSynth | null = null;
-let congaOpenSynth: Tone.MembraneSynth | null = null;
+let congaSlapPlayer: Tone.Player | null = null;
+let congaOpenPlayer: Tone.Player | null = null;
 
 /** Voice players keyed by the raw cue string ('1', '&1', etc.) */
 const voicePlayers: Map<string, Tone.Player> = new Map();
@@ -73,8 +76,8 @@ export function getDebugState(): Record<string, string> {
     transportState: Tone.getTransport().state,
     initialized: String(initialized),
     cowbellSynth: cowbellSynth ? 'created' : 'null',
-    congaSlapSynth: congaSlapSynth ? 'created' : 'null',
-    congaOpenSynth: congaOpenSynth ? 'created' : 'null',
+    congaSlapPlayer: congaSlapPlayer?.loaded ? 'loaded' : (congaSlapPlayer ? 'loading' : 'null'),
+    congaOpenPlayer: congaOpenPlayer?.loaded ? 'loaded' : (congaOpenPlayer ? 'loading' : 'null'),
     voicePlayers: `${voicePlayers.size} loaded`,
     voiceSamplesReady: String(voiceSamplesReady),
     currentStep: String(currentStep),
@@ -130,21 +133,24 @@ export async function initSequencer(): Promise<void> {
   });
   cowbellSynth.connect(cowbellGain);
 
-  congaSlapSynth = new Tone.MembraneSynth({
-    pitchDecay: 0.008,
-    octaves: 4,
-    envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.05 },
-    volume: -8,
-  });
-  congaSlapSynth.connect(congaGain);
+  // --- Conga samples (real recordings instead of MembraneSynth) ---
+  const slapPlayer = await safeLoadPlayer(`${SAMPLE_BASE}/conga_slap.wav`);
+  if (slapPlayer && congaGain) {
+    slapPlayer.connect(congaGain);
+    congaSlapPlayer = slapPlayer;
+    diag('Conga slap sample loaded');
+  } else {
+    diag('WARNING: conga_slap.wav failed to load');
+  }
 
-  congaOpenSynth = new Tone.MembraneSynth({
-    pitchDecay: 0.05,
-    octaves: 3,
-    envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 0.1 },
-    volume: -8,
-  });
-  congaOpenSynth.connect(congaGain);
+  const openPlayer = await safeLoadPlayer(`${SAMPLE_BASE}/conga_open.wav`);
+  if (openPlayer && congaGain) {
+    openPlayer.connect(congaGain);
+    congaOpenPlayer = openPlayer;
+    diag('Conga open sample loaded');
+  } else {
+    diag('WARNING: conga_open.wav failed to load');
+  }
 
   // --- Voice samples (file-based, graceful degradation) ---
   await loadVoiceSamples();
@@ -258,20 +264,42 @@ function onStep(time: number, stepIndex: number): void {
     cowbellSynth.triggerAttackRelease('16n', time);
   }
 
-  // --- Conga (MembraneSynth) ---
+  // --- Conga (sample-based) ---
   const congaHit = congaPattern[stepIndex];
-  if (congaHit === 'slap' && congaSlapSynth) {
-    congaSlapSynth.triggerAttackRelease('C4', '16n', time);
-  } else if (congaHit === 'open' && congaOpenSynth) {
-    congaOpenSynth.triggerAttackRelease('G3', '16n', time);
+  if (congaHit === 'slap' && congaSlapPlayer?.loaded) {
+    congaSlapPlayer.start(time);
+  } else if (congaHit === 'open' && congaOpenPlayer?.loaded) {
+    congaOpenPlayer.start(time);
   }
 
-  // --- Voice (mode-aware, gracefully skips if not loaded) ---
+  // --- Voice (mode-aware, tempo-adaptive, with emphasis) ---
   const currentMode: TimingMode = mode ?? 'on1';
   const voiceHit = voicePatterns[currentMode]?.[stepIndex];
   if (voiceHit && voiceSamplesReady) {
     const player = voicePlayers.get(voiceHit);
     if (player?.loaded) {
+      // Tempo-adaptive playback rate: scale voice speed with BPM
+      const currentBpm = Tone.getTransport().bpm.value;
+      let rate = currentBpm / VOICE_REFERENCE_BPM;
+
+      // Extra speed for compound cues (&1, &5) so they don't bleed
+      const speedOverride = VOICE_SPEED_OVERRIDES[voiceHit];
+      if (speedOverride) {
+        rate *= speedOverride;
+      }
+
+      player.playbackRate = rate;
+
+      // Emphasis: temporarily boost voice gain for "spike" beats (e.g. 2 & 6)
+      const emphasis = voiceEmphasis[currentMode]?.[voiceHit] ?? 1.0;
+      if (voiceGain && emphasis !== 1.0) {
+        const baseVol = volumes?.voice ?? 0.9;
+        voiceGain.gain.setValueAtTime(baseVol * emphasis, time);
+        // Reset after one 16th note
+        const sixteenthSec = 60 / currentBpm / 4;
+        voiceGain.gain.setValueAtTime(baseVol, time + sixteenthSec);
+      }
+
       player.start(time);
     }
   }
@@ -300,7 +328,7 @@ export async function startSequencer(): Promise<void> {
     diag('Calling initSequencer()...');
     try {
       await initSequencer();
-      diag(`initSequencer() done. cowbell=${!!cowbellSynth} congaSlap=${!!congaSlapSynth} congaOpen=${!!congaOpenSynth}`);
+      diag(`initSequencer() done. cowbell=${!!cowbellSynth} congaSlap=${!!congaSlapPlayer} congaOpen=${!!congaOpenPlayer}`);
     } catch (err) {
       diag(`initSequencer() THREW: ${err}`);
       throw err;
