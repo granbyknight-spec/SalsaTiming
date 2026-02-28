@@ -9,6 +9,13 @@ The primary user works from an **iPhone 16 Pro Max running Safari**. All workflo
 3. **GitHub Pages is the deployment target.** The app is served as a static site from the `docs/` folder. All assets must be committed and accessible via relative paths from the document root.
 4. **No local dev server.** Do not assume the user can run `expo start` or any dev server. Changes are deployed by rebuilding the web bundle and pushing to the repo.
 
+## Asset & API Cost Policy
+
+1. **Generate once, commit forever.** Any asset that requires an external API (e.g., ElevenLabs TTS, image generation) should be generated **once** and committed to the repo as a static file. Do not design systems that call paid APIs at runtime on every page load or user action.
+2. **Always ask before recurring API calls.** If a proposed solution involves API calls that would run repeatedly (per-session, per-user, or on a schedule), **stop and ask the user first**. Explain the cost implications before proceeding.
+3. **Prefer GitHub Actions for one-time generation.** Use `workflow_dispatch` Actions with secrets for one-time asset generation. The user triggers it manually from their phone, files get committed, done.
+4. **No API keys in frontend code.** Never expose API keys in client-side bundles. Use GitHub Secrets for CI/CD, or server-side endpoints if runtime calls are truly needed.
+
 ## Parallel Agent Strategy
 
 You are always the orchestrator. You never work alone on complex tasks.
