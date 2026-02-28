@@ -19,7 +19,6 @@ import { appStore } from '../store/appStore';
 // ---- Constants ------------------------------------------------------------
 
 const SAMPLE_BASE = 'assets/samples';
-const VOICE_CACHE_DIR = '/voice_cache';
 
 const MIN_BPM = 60;
 const MAX_BPM = 220;
@@ -116,19 +115,10 @@ export async function initSequencer(): Promise<void> {
  * we optimistically attempt to load every file.
  */
 async function loadVoiceSamples(): Promise<void> {
-  const state = appStore.getState();
-  const cacheReady = state.voiceCacheReady;
-
-  // If the store explicitly says the cache is not ready, skip loading.
-  if (cacheReady === false) {
-    voiceSamplesReady = false;
-    return;
-  }
-
   const entries = Object.entries(VOICE_FILE_MAP);
   const results = await Promise.allSettled(
     entries.map(async ([cue, filename]) => {
-      const url = `${VOICE_CACHE_DIR}/${filename}.mp3`;
+      const url = `${SAMPLE_BASE}/${filename}.mp3`;
       const player = await safeLoadPlayer(url);
       if (player && voiceGain) {
         player.connect(voiceGain);
