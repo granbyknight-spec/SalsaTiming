@@ -50,6 +50,9 @@ let sequence: Tone.Sequence | null = null;
 /** Current step index (0-15), updated each tick */
 let currentStep = 0;
 
+/** Last voice player that was triggered — used to cut off tails before the next cue */
+let lastVoicePlayer: Tone.Player | null = null;
+
 /** Whether initSequencer() has completed successfully */
 let initialized = false;
 
@@ -292,6 +295,7 @@ function onStep(time: number, stepIndex: number): void {
       }
 
       player.playbackRate = rate;
+      player.fadeOut = 0.02; // 20ms fade to soften cut-off
 
       // Emphasis: temporarily boost voice gain for "spike" beats (e.g. 2 & 6)
       const emphasis = voiceEmphasis[currentMode]?.[voiceHit] ?? 1.0;
@@ -303,7 +307,12 @@ function onStep(time: number, stepIndex: number): void {
         voiceGain.gain.setValueAtTime(baseVol, time + sixteenthSec);
       }
 
+      // Stop the previous voice cue so tails don't bleed under the new one
+      if (lastVoicePlayer && lastVoicePlayer !== player) {
+        lastVoicePlayer.stop(time);
+      }
       player.start(time);
+      lastVoicePlayer = player;
     }
   }
 }

@@ -18,7 +18,8 @@
 const ELEVENLABS_API_BASE = 'https://api.elevenlabs.io/v1';
 const VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel
 const MODEL_ID = 'eleven_turbo_v2';
-const CACHE_NAME = 'salsa-timing-voice-cache-v2';
+const VOICE_SPEED = 1.15;
+const CACHE_NAME = 'salsa-timing-voice-cache-v3'; // bumped: speed parameter changed
 
 /**
  * Maps each voice cue key (as used in VOICE_FILE_MAP / patterns) to:
@@ -72,6 +73,7 @@ async function synthesize(apiKey: string, text: string): Promise<Blob> {
         stability: 0.75,
         similarity_boost: 0.75,
       },
+      speed: VOICE_SPEED,
     }),
   });
 

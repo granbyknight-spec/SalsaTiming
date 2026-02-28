@@ -7,6 +7,7 @@
 const ELEVENLABS_API_BASE = 'https://api.elevenlabs.io/v1';
 const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel
 const MODEL_ID = 'eleven_turbo_v2';
+const VOICE_SPEED = 1.15;
 
 function getApiKey(): string | undefined {
   // Expo public env vars are inlined at build time via process.env.EXPO_PUBLIC_*
@@ -50,6 +51,7 @@ export async function generateSpeech(
         stability: 0.75,
         similarity_boost: 0.75,
       },
+      speed: VOICE_SPEED,
     }),
   });
 

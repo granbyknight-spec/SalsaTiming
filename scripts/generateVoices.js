@@ -9,6 +9,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 
 // ---------------------------------------------------------------------------
 // Configuration (mirrors src/audio/elevenlabs.ts)
@@ -18,6 +19,7 @@ const ELEVENLABS_API_BASE = 'https://api.elevenlabs.io/v1';
 const VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel — clear female voice
 const MODEL_ID = 'eleven_turbo_v2';
 const VOICE_SETTINGS = { stability: 0.75, similarity_boost: 0.75 };
+const VOICE_SPEED = 1.15; // Slightly faster speech for crisper, shorter samples
 
 // ---------------------------------------------------------------------------
 // Voice file map (mirrors src/engine/patterns.ts VOICE_FILE_MAP)
@@ -87,6 +89,7 @@ async function generateSpeech(text, apiKey) {
       text,
       model_id: MODEL_ID,
       voice_settings: VOICE_SETTINGS,
+      speed: VOICE_SPEED,
     }),
   });
 
@@ -117,6 +120,36 @@ async function generateSpeech(text, apiKey) {
 
   const arrayBuffer = await response.arrayBuffer();
   return Buffer.from(arrayBuffer);
+}
+
+/**
+ * Trim leading and trailing silence from an MP3 buffer using FFmpeg.
+ * Falls back to the original buffer if FFmpeg is not available.
+ */
+function trimSilence(buffer, filename) {
+  const tmpIn = path.join(OUTPUT_DIRS[0], `_raw_${filename}`);
+  const tmpOut = path.join(OUTPUT_DIRS[0], `_trimmed_${filename}`);
+
+  try {
+    fs.writeFileSync(tmpIn, buffer);
+
+    // silenceremove: strip leading silence (start_periods=1, start_threshold=-40dB)
+    // then reverse + strip trailing silence + reverse back
+    execSync(
+      `ffmpeg -y -i "${tmpIn}" -af "silenceremove=start_periods=1:start_threshold=-40dB,areverse,silenceremove=start_periods=1:start_threshold=-40dB,areverse" "${tmpOut}"`,
+      { stdio: 'pipe' },
+    );
+
+    const trimmed = fs.readFileSync(tmpOut);
+    return trimmed;
+  } catch {
+    console.warn(`  (silence trimming skipped — ffmpeg not available or failed)`);
+    return buffer;
+  } finally {
+    // Clean up temp files
+    try { fs.unlinkSync(tmpIn); } catch {}
+    try { fs.unlinkSync(tmpOut); } catch {}
+  }
 }
 
 /**
@@ -171,10 +204,12 @@ async function main() {
     process.stdout.write(`${label} Generating "${text}" -> ${filename} ... `);
 
     try {
-      const audioBuffer = await generateSpeech(text, apiKey);
+      const rawBuffer = await generateSpeech(text, apiKey);
+      const audioBuffer = trimSilence(rawBuffer, filename);
       const paths = writeToAllOutputDirs(filename, audioBuffer);
+      const rawKB = (rawBuffer.length / 1024).toFixed(1);
       const sizeKB = (audioBuffer.length / 1024).toFixed(1);
-      console.log(`done (${sizeKB} KB, written to ${paths.length} locations)`);
+      console.log(`done (${rawKB} KB raw -> ${sizeKB} KB trimmed, written to ${paths.length} locations)`);
     } catch (err) {
       console.log('FAILED');
       console.error(`\n  Error for cue "${cue}": ${err.message}\n`);

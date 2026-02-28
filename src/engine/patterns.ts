@@ -105,9 +105,11 @@ export const voiceEmphasis: Partial<Record<TimingMode, Record<string, number>>> 
 // before the next beat arrives.
 // ---------------------------------------------------------------------------
 export const VOICE_SPEED_OVERRIDES: Record<string, number> = {
-  '&1': 1.3,
-  '&5': 1.3,
+  '&1': 1.1,
+  '&5': 1.1,
 };
 
-/** Reference BPM at which voice samples sound natural without rate adjustment. */
-export const VOICE_REFERENCE_BPM = 100;
+/** Reference BPM at which voice samples sound natural without rate adjustment.
+ *  Set to 135 (matching ElevenLabs speed:1.15) to reduce pitch-shifting at high tempos.
+ *  At 180 BPM the ratio is 1.33x instead of 1.8x; at 220 BPM it is 1.63x instead of 2.2x. */
+export const VOICE_REFERENCE_BPM = 135;
