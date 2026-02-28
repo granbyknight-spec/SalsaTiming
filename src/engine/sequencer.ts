@@ -2,6 +2,8 @@
 // sequencer.ts — Tone.js-based salsa rhythm sequencer
 //
 // All timing is driven exclusively by Tone.Transport (no setInterval).
+// Percussion uses Tone.js synthesizers (MetalSynth / MembraneSynth) so there
+// are ZERO file-loading dependencies for rhythm tracks.
 // Voice samples degrade gracefully: if a voice file is not loaded yet the
 // step is silently skipped.
 // ---------------------------------------------------------------------------
@@ -26,10 +28,10 @@ const TOTAL_STEPS = 16;
 
 // ---- Module state ---------------------------------------------------------
 
-/** Percussion players */
-let cowbellPlayer: Tone.Player | null = null;
-let congaSlapPlayer: Tone.Player | null = null;
-let congaOpenPlayer: Tone.Player | null = null;
+/** Percussion synths (no file loading required) */
+let cowbellSynth: Tone.MetalSynth | null = null;
+let congaSlapSynth: Tone.MembraneSynth | null = null;
+let congaOpenSynth: Tone.MembraneSynth | null = null;
 
 /** Voice players keyed by the raw cue string ('1', '&1', etc.) */
 const voicePlayers: Map<string, Tone.Player> = new Map();
@@ -75,7 +77,7 @@ async function safeLoadPlayer(url: string): Promise<Tone.Player | null> {
 // ---- Initialisation -------------------------------------------------------
 
 /**
- * Load all audio samples and wire up gain nodes.
+ * Create percussion synthesizers and wire up gain nodes.
  * Call once at app boot (does not require user gesture).
  */
 export async function initSequencer(): Promise<void> {
@@ -86,33 +88,51 @@ export async function initSequencer(): Promise<void> {
   congaGain = new Tone.Gain(1).toDestination();
   voiceGain = new Tone.Gain(1).toDestination();
 
-  // --- Percussion samples ---
-  cowbellPlayer = await safeLoadPlayer(`${SAMPLE_BASE}/cowbell.wav`);
-  congaSlapPlayer = await safeLoadPlayer(`${SAMPLE_BASE}/conga_slap.wav`);
-  congaOpenPlayer = await safeLoadPlayer(`${SAMPLE_BASE}/conga_open.wav`);
+  // --- Percussion synths (no file loading!) ---
+  cowbellSynth = new Tone.MetalSynth({
+    frequency: 800,
+    envelope: { attack: 0.001, decay: 0.15, release: 0.05 },
+    harmonicity: 5.1,
+    modulationIndex: 32,
+    resonance: 4000,
+    octaves: 1.5,
+    volume: -10,
+  });
+  cowbellSynth.connect(cowbellGain);
 
-  if (cowbellPlayer) cowbellPlayer.connect(cowbellGain);
-  if (congaSlapPlayer) congaSlapPlayer.connect(congaGain);
-  if (congaOpenPlayer) congaOpenPlayer.connect(congaGain);
+  congaSlapSynth = new Tone.MembraneSynth({
+    pitchDecay: 0.008,
+    octaves: 4,
+    envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.05 },
+    volume: -8,
+  });
+  congaSlapSynth.connect(congaGain);
 
-  // --- Voice samples ---
+  congaOpenSynth = new Tone.MembraneSynth({
+    pitchDecay: 0.05,
+    octaves: 3,
+    envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 0.1 },
+    volume: -8,
+  });
+  congaOpenSynth.connect(congaGain);
+
+  // --- Voice samples (file-based, graceful degradation) ---
   await loadVoiceSamples();
 
-  // --- Wait for all buffers to finish decoding ---
+  // --- Wait for any voice buffers to finish decoding ---
   try {
     await Tone.loaded();
   } catch {
-    console.warn('[sequencer] Tone.loaded() failed — some samples may be missing');
+    console.warn('[sequencer] Tone.loaded() failed — some voice samples may be missing');
   }
 
   initialized = true;
 }
 
 /**
- * Load voice cue samples from the voice cache directory.
+ * Load voice cue samples from the assets/samples directory.
  * Each entry in VOICE_FILE_MAP becomes a Tone.Player keyed by the cue string.
- * If the store exposes a `voiceCacheReady` flag we check it first; otherwise
- * we optimistically attempt to load every file.
+ * These are the espeak fallback files shipped with the app.
  */
 async function loadVoiceSamples(): Promise<void> {
   const entries = Object.entries(VOICE_FILE_MAP);
@@ -130,6 +150,44 @@ async function loadVoiceSamples(): Promise<void> {
   // Consider voice ready if at least one file loaded successfully
   voiceSamplesReady =
     results.some((r) => r.status === 'fulfilled') && voicePlayers.size > 0;
+}
+
+/**
+ * Load voice samples from externally-provided blob URLs (e.g. browser-cached
+ * ElevenLabs audio). Replaces any previously loaded voice players for the
+ * given cue strings.
+ *
+ * @param urls — Map where keys are cue strings ('1', '2', '&1', etc.)
+ *               and values are blob URLs (e.g. blob:http://…)
+ */
+export async function loadVoiceFromUrls(urls: Map<string, string>): Promise<void> {
+  const results = await Promise.allSettled(
+    Array.from(urls.entries()).map(async ([cue, blobUrl]) => {
+      // Dispose of any existing player for this cue
+      const existing = voicePlayers.get(cue);
+      if (existing) {
+        existing.dispose();
+        voicePlayers.delete(cue);
+      }
+
+      const player = await safeLoadPlayer(blobUrl);
+      if (player && voiceGain) {
+        player.connect(voiceGain);
+        voicePlayers.set(cue, player);
+      }
+    }),
+  );
+
+  // Update readiness — voice is ready if we have at least one player
+  voiceSamplesReady =
+    results.some((r) => r.status === 'fulfilled') && voicePlayers.size > 0;
+
+  // Ensure new buffers are decoded
+  try {
+    await Tone.loaded();
+  } catch {
+    console.warn('[sequencer] Tone.loaded() failed after loading voice blob URLs');
+  }
 }
 
 // ---- Sequence callback ----------------------------------------------------
@@ -158,18 +216,18 @@ function onStep(time: number, stepIndex: number): void {
     voiceGain.gain.value = volumes.voice;
   }
 
-  // --- Cowbell ---
+  // --- Cowbell (MetalSynth) ---
   const cowbellHit = cowbellPattern[stepIndex];
-  if (cowbellHit && cowbellPlayer?.loaded) {
-    cowbellPlayer.start(time);
+  if (cowbellHit && cowbellSynth) {
+    cowbellSynth.triggerAttackRelease('16n', time);
   }
 
-  // --- Conga ---
+  // --- Conga (MembraneSynth) ---
   const congaHit = congaPattern[stepIndex];
-  if (congaHit === 'slap' && congaSlapPlayer?.loaded) {
-    congaSlapPlayer.start(time);
-  } else if (congaHit === 'open' && congaOpenPlayer?.loaded) {
-    congaOpenPlayer.start(time);
+  if (congaHit === 'slap' && congaSlapSynth) {
+    congaSlapSynth.triggerAttackRelease('C4', '16n', time);
+  } else if (congaHit === 'open' && congaOpenSynth) {
+    congaOpenSynth.triggerAttackRelease('G3', '16n', time);
   }
 
   // --- Voice (mode-aware, gracefully skips if not loaded) ---

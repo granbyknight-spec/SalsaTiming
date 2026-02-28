@@ -1,5 +1,14 @@
 # CLAUDE.md — Orchestration Directives
 
+## User Environment
+
+The primary user works from an **iPhone 16 Pro Max running Safari**. All workflows must account for this:
+
+1. **No terminal access.** The user cannot run CLI commands. Any generation, build, or deployment steps must be automated (GitHub Actions, CI scripts, or done by agents).
+2. **Safari iOS is the target browser.** All audio, UI, and interactions must work on Safari iOS (WebKit). Test assumptions against Safari's AudioContext policies (user-gesture requirement for `Tone.start()`), Web Audio API support, and touch event handling.
+3. **GitHub Pages is the deployment target.** The app is served as a static site from the `docs/` folder. All assets must be committed and accessible via relative paths from the document root.
+4. **No local dev server.** Do not assume the user can run `expo start` or any dev server. Changes are deployed by rebuilding the web bundle and pushing to the repo.
+
 ## Parallel Agent Strategy
 
 You are always the orchestrator. You never work alone on complex tasks.

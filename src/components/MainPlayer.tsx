@@ -6,6 +6,7 @@ import BPMControl from './BPMControl';
 import PlayButton from './PlayButton';
 import ModeSelector from './ModeSelector';
 import TrackMixer from './TrackMixer';
+import VoiceSettings from './VoiceSettings';
 
 // ---------------------------------------------------------------------------
 // MainPlayer — top-level screen assembling all player components
@@ -43,6 +44,12 @@ const MainPlayer: React.FC = () => {
 
         {/* Volume mixer */}
         <TrackMixer />
+
+        {/* Divider */}
+        <View style={styles.divider} />
+
+        {/* ElevenLabs voice generation */}
+        <VoiceSettings />
 
         {/* Bottom spacer for safe area */}
         <View style={styles.bottomSpacer} />
