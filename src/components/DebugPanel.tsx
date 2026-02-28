@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform } from 'react-native';
 import { getDiagLog, getDebugState } from '../engine/sequencer';
+import * as Tone from 'tone';
 
 // ---------------------------------------------------------------------------
 // DebugPanel — on-screen diagnostic display for debugging audio issues
@@ -10,6 +11,7 @@ const DebugPanel: React.FC = () => {
   const [visible, setVisible] = useState(false);
   const [log, setLog] = useState<readonly string[]>([]);
   const [state, setState] = useState<Record<string, string>>({});
+  const [testResult, setTestResult] = useState('');
 
   const refresh = useCallback(() => {
     setLog([...getDiagLog()]);
@@ -22,6 +24,80 @@ const DebugPanel: React.FC = () => {
       return !v;
     });
   }, [refresh]);
+
+  /**
+   * iOS Safari silent-mode workaround:
+   * Play a tiny silent <audio> element to switch the audio session
+   * from "ambient" (respects silent switch) to "playback" (ignores it).
+   * Then play a test tone through raw Web Audio API, bypassing Tone.js entirely.
+   */
+  const playTestTone = useCallback(async () => {
+    setTestResult('Starting test...');
+    try {
+      // Step 1: iOS silent-mode workaround — play a tiny audio element
+      if (Platform.OS === 'web') {
+        try {
+          // Create a tiny silent WAV as a data URI
+          // This is a valid 44-byte WAV header + 2 bytes of silence
+          const silentWav = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGFkYQAAAAA=';
+          const audio = new Audio(silentWav);
+          audio.volume = 0.01;
+          await audio.play().catch(() => {});
+          setTestResult('Step 1: HTML Audio played (silent mode bypass)');
+        } catch {
+          setTestResult('Step 1: HTML Audio failed (ok, continuing)');
+        }
+      }
+
+      // Step 2: Ensure Tone.js AudioContext is running
+      await Tone.start();
+      const ctxState = Tone.getContext().state;
+      setTestResult(`Step 2: Tone.start() done. Context: ${ctxState}`);
+
+      // Step 3: Play a raw Web Audio API oscillator (bypasses Tone.js entirely)
+      const ctx = Tone.getContext().rawContext;
+      if (ctx) {
+        const osc = (ctx as AudioContext).createOscillator();
+        const gain = (ctx as AudioContext).createGain();
+        osc.frequency.value = 440; // A4 note
+        osc.type = 'sine';
+        gain.gain.value = 0.5;
+        osc.connect(gain);
+        gain.connect((ctx as AudioContext).destination);
+        osc.start();
+        osc.stop((ctx as AudioContext).currentTime + 0.3);
+        setTestResult(prev =>
+          prev + '\nStep 3: Raw 440Hz oscillator → destination (0.3s)'
+        );
+      }
+
+      // Step 4: Also play a Tone.js synth directly to destination
+      const synth = new Tone.Synth({ volume: 0 }).toDestination();
+      synth.triggerAttackRelease('C5', '8n');
+      setTestResult(prev =>
+        prev + '\nStep 4: Tone.Synth C5 → toDestination()'
+      );
+
+      // Step 5: Play via MetalSynth through gain (same as our cowbell)
+      const metal = new Tone.MetalSynth({
+        frequency: 800,
+        harmonicity: 5.1,
+        modulationIndex: 32,
+        resonance: 4000,
+        octaves: 1.5,
+        volume: 0,
+      }).toDestination();
+      setTimeout(() => {
+        metal.triggerAttackRelease('8n');
+        setTestResult(prev =>
+          prev + '\nStep 5: MetalSynth → toDestination() (delayed 500ms)'
+        );
+      }, 500);
+
+    } catch (err) {
+      setTestResult(`ERROR: ${err}`);
+    }
+  }, []);
 
   if (!visible) {
     return (
@@ -42,6 +118,14 @@ const DebugPanel: React.FC = () => {
           <Text style={styles.closeText}>Close</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Test Tone button */}
+      <TouchableOpacity style={styles.testBtn} onPress={playTestTone}>
+        <Text style={styles.testBtnText}>Play Test Tone (tap here first!)</Text>
+      </TouchableOpacity>
+      {testResult ? (
+        <Text style={styles.testResult}>{testResult}</Text>
+      ) : null}
 
       {/* State table */}
       <View style={styles.stateSection}>
@@ -99,7 +183,7 @@ const styles = StyleSheet.create({
     borderColor: '#334466',
     marginTop: 12,
     padding: 12,
-    maxHeight: 400,
+    maxHeight: 500,
   },
   header: {
     flexDirection: 'row',
@@ -127,6 +211,28 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   closeText: { color: '#e94560', fontSize: 12 },
+  testBtn: {
+    backgroundColor: '#1a6b3a',
+    borderRadius: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  testBtnText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  testResult: {
+    color: '#c9d1d9',
+    fontSize: 11,
+    fontFamily: 'monospace',
+    backgroundColor: '#161b22',
+    padding: 8,
+    borderRadius: 4,
+    marginBottom: 8,
+  },
   stateSection: {
     backgroundColor: '#161b22',
     borderRadius: 4,
