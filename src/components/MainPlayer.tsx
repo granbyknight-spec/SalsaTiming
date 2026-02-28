@@ -7,6 +7,7 @@ import PlayButton from './PlayButton';
 import ModeSelector from './ModeSelector';
 import TrackMixer from './TrackMixer';
 import VoiceSettings from './VoiceSettings';
+import DebugPanel from './DebugPanel';
 
 // ---------------------------------------------------------------------------
 // MainPlayer — top-level screen assembling all player components
@@ -50,6 +51,9 @@ const MainPlayer: React.FC = () => {
 
         {/* ElevenLabs voice generation */}
         <VoiceSettings />
+
+        {/* Debug panel (tap to expand) */}
+        <DebugPanel />
 
         {/* Bottom spacer for safe area */}
         <View style={styles.bottomSpacer} />

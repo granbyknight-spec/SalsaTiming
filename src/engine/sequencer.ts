@@ -53,6 +53,36 @@ let initialized = false;
 /** Whether voice samples have been loaded */
 let voiceSamplesReady = false;
 
+/** Diagnostic log visible in the UI (since user has no console access) */
+const _diagLog: string[] = [];
+function diag(msg: string): void {
+  const ts = new Date().toLocaleTimeString();
+  _diagLog.push(`[${ts}] ${msg}`);
+  if (_diagLog.length > 30) _diagLog.shift();
+}
+
+/** Read-only access to diagnostic log from UI */
+export function getDiagLog(): readonly string[] {
+  return _diagLog;
+}
+
+/** Get a snapshot of internal state for the debug panel */
+export function getDebugState(): Record<string, string> {
+  return {
+    audioContextState: Tone.getContext().state,
+    transportState: Tone.getTransport().state,
+    initialized: String(initialized),
+    cowbellSynth: cowbellSynth ? 'created' : 'null',
+    congaSlapSynth: congaSlapSynth ? 'created' : 'null',
+    congaOpenSynth: congaOpenSynth ? 'created' : 'null',
+    voicePlayers: `${voicePlayers.size} loaded`,
+    voiceSamplesReady: String(voiceSamplesReady),
+    currentStep: String(currentStep),
+    sequence: sequence ? 'active' : 'null',
+    bpm: String(Tone.getTransport().bpm.value.toFixed(1)),
+  };
+}
+
 // ---- Helpers --------------------------------------------------------------
 
 function clampBPM(bpm: number): number {
@@ -197,8 +227,14 @@ export async function loadVoiceFromUrls(urls: Map<string, string>): Promise<void
  * Reads the *current* mode from the store so mode switches take effect
  * immediately on the next step without restarting transport.
  */
+let _stepCount = 0;
 function onStep(time: number, stepIndex: number): void {
   currentStep = stepIndex;
+  _stepCount++;
+  // Log first few steps to confirm the callback is firing
+  if (_stepCount <= 3) {
+    diag(`onStep fired: step=${stepIndex} time=${time.toFixed(3)} (call #${_stepCount})`);
+  }
 
   // Push current step to the store so the UI BeatIndicator can reflect it
   appStore.getState().setCurrentStep(stepIndex);
@@ -248,23 +284,41 @@ function onStep(time: number, stepIndex: number): void {
  * (Tone.start() requires it for the AudioContext to resume).
  */
 export async function startSequencer(): Promise<void> {
+  diag('startSequencer() called');
+  diag(`AudioContext state BEFORE Tone.start(): ${Tone.getContext().state}`);
+
   // Resume / unlock the audio context (user-gesture requirement)
-  await Tone.start();
+  try {
+    await Tone.start();
+    diag(`AudioContext state AFTER Tone.start(): ${Tone.getContext().state}`);
+  } catch (err) {
+    diag(`Tone.start() THREW: ${err}`);
+    throw err;
+  }
 
   if (!initialized) {
-    await initSequencer();
+    diag('Calling initSequencer()...');
+    try {
+      await initSequencer();
+      diag(`initSequencer() done. cowbell=${!!cowbellSynth} congaSlap=${!!congaSlapSynth} congaOpen=${!!congaOpenSynth}`);
+    } catch (err) {
+      diag(`initSequencer() THREW: ${err}`);
+      throw err;
+    }
   }
 
   // Ensure all loaded buffers are decoded
   try {
     await Tone.loaded();
   } catch {
-    // Non-fatal — we can still play whatever is loaded
+    diag('Tone.loaded() failed (non-fatal)');
   }
 
   // Set initial BPM from store
   const { bpm } = appStore.getState();
-  Tone.getTransport().bpm.value = clampBPM(bpm ?? 180);
+  const clampedBpm = clampBPM(bpm ?? 180);
+  Tone.getTransport().bpm.value = clampedBpm;
+  diag(`BPM set to ${clampedBpm}`);
 
   // Tear down any previous sequence
   if (sequence) {
@@ -277,8 +331,10 @@ export async function startSequencer(): Promise<void> {
   sequence = new Tone.Sequence(onStep, stepIndices, '16n');
   sequence.loop = true;
   sequence.start(0);
+  diag('Sequence created and started');
 
   Tone.getTransport().start();
+  diag(`Transport started. State: ${Tone.getTransport().state}`);
 }
 
 /**

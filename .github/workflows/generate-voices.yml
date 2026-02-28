@@ -3,6 +3,9 @@ name: Generate ElevenLabs Voice Samples
 on:
   workflow_dispatch: # Manual trigger from GitHub UI (phone-friendly!)
 
+permissions:
+  contents: write
+
 jobs:
   generate:
     runs-on: ubuntu-latest
