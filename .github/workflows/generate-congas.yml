@@ -1,0 +1,39 @@
+name: Generate ElevenLabs Conga Samples
+
+on:
+  workflow_dispatch: # Manual trigger from GitHub UI (phone-friendly!)
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Generate conga samples via ElevenLabs Sound Effects API
+        env:
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+        run: node scripts/generateCongaSamples.js
+
+      - name: Verify conga files exist
+        run: |
+          for f in conga_slap conga_open conga_mute; do
+            test -f "docs/assets/samples/${f}.mp3" || { echo "Missing: ${f}.mp3"; exit 1; }
+          done
+          echo "All 3 conga sample files verified."
+          ls -la docs/assets/samples/conga_*.mp3
+
+      - name: Commit and push generated conga samples
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add assets/samples/conga_*.mp3 docs/assets/samples/conga_*.mp3
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "Generate ElevenLabs conga drum samples (Sound Effects API)"
+          git push

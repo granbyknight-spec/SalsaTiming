@@ -133,24 +133,27 @@ export async function initSequencer(): Promise<void> {
   });
   cowbellSynth.connect(cowbellGain);
 
-  // --- Conga samples (real recordings instead of MembraneSynth) ---
-  const slapPlayer = await safeLoadPlayer(`${SAMPLE_BASE}/conga_slap.wav`);
-  if (slapPlayer && congaGain) {
-    slapPlayer.connect(congaGain);
-    congaSlapPlayer = slapPlayer;
-    diag('Conga slap sample loaded');
-  } else {
-    diag('WARNING: conga_slap.wav failed to load');
+  // --- Conga samples (ElevenLabs SFX .mp3, falls back to synth .wav) ---
+  for (const ext of ['mp3', 'wav']) {
+    if (!congaSlapPlayer) {
+      const p = await safeLoadPlayer(`${SAMPLE_BASE}/conga_slap.${ext}`);
+      if (p && congaGain) {
+        p.connect(congaGain);
+        congaSlapPlayer = p;
+        diag(`Conga slap loaded (${ext})`);
+      }
+    }
+    if (!congaOpenPlayer) {
+      const p = await safeLoadPlayer(`${SAMPLE_BASE}/conga_open.${ext}`);
+      if (p && congaGain) {
+        p.connect(congaGain);
+        congaOpenPlayer = p;
+        diag(`Conga open loaded (${ext})`);
+      }
+    }
   }
-
-  const openPlayer = await safeLoadPlayer(`${SAMPLE_BASE}/conga_open.wav`);
-  if (openPlayer && congaGain) {
-    openPlayer.connect(congaGain);
-    congaOpenPlayer = openPlayer;
-    diag('Conga open sample loaded');
-  } else {
-    diag('WARNING: conga_open.wav failed to load');
-  }
+  if (!congaSlapPlayer) diag('WARNING: no conga slap sample found');
+  if (!congaOpenPlayer) diag('WARNING: no conga open sample found');
 
   // --- Voice samples (file-based, graceful degradation) ---
   await loadVoiceSamples();

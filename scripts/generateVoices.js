@@ -25,15 +25,15 @@ const VOICE_SETTINGS = { stability: 0.75, similarity_boost: 0.75 };
 
 const VOICE_FILE_MAP = {
   '1':  { filename: 'voice_one.mp3',      text: 'one' },
-  '2':  { filename: 'voice_two.mp3',      text: 'two' },
+  '2':  { filename: 'voice_two.mp3',      text: 'TWO!' },
   '3':  { filename: 'voice_three.mp3',    text: 'three' },
   '4':  { filename: 'voice_four.mp3',     text: 'four' },
   '5':  { filename: 'voice_five.mp3',     text: 'five' },
-  '6':  { filename: 'voice_six.mp3',      text: 'six' },
+  '6':  { filename: 'voice_six.mp3',      text: 'SIX!' },
   '7':  { filename: 'voice_seven.mp3',    text: 'seven' },
   '8':  { filename: 'voice_eight.mp3',    text: 'eight' },
-  '&1': { filename: 'voice_and_one.mp3',  text: 'and one' },
-  '&5': { filename: 'voice_and_five.mp3', text: 'and five' },
+  '&1': { filename: 'voice_and_one.mp3',  text: 'and-one' },
+  '&5': { filename: 'voice_and_five.mp3', text: 'and-five' },
 };
 
 // Output directories (relative to project root)
