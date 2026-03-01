@@ -16,7 +16,7 @@ const { execSync } = require('child_process');
 // ---------------------------------------------------------------------------
 
 const ELEVENLABS_API_BASE = 'https://api.elevenlabs.io/v1';
-const VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel — clear female voice
+const VOICE_ID = 'onwK4e9ZLuTAKqWW03F9'; // Daniel — deep authoritative British male
 const MODEL_ID = 'eleven_turbo_v2';
 const VOICE_SETTINGS = { stability: 0.75, similarity_boost: 0.75 };
 const VOICE_SPEED = 1.15; // Slightly faster speech for crisper, shorter samples

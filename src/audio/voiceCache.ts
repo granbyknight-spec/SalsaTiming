@@ -16,10 +16,10 @@
 // ---------------------------------------------------------------------------
 
 const ELEVENLABS_API_BASE = 'https://api.elevenlabs.io/v1';
-const VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel
+const VOICE_ID = 'onwK4e9ZLuTAKqWW03F9'; // Daniel — deep British male
 const MODEL_ID = 'eleven_turbo_v2';
 const VOICE_SPEED = 1.15;
-const CACHE_NAME = 'salsa-timing-voice-cache-v3'; // bumped: speed parameter changed
+const CACHE_NAME = 'salsa-timing-voice-cache-v4'; // bumped: switched to Daniel voice
 
 /**
  * Maps each voice cue key (as used in VOICE_FILE_MAP / patterns) to:

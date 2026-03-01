@@ -5,7 +5,7 @@
  */
 
 const ELEVENLABS_API_BASE = 'https://api.elevenlabs.io/v1';
-const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel
+const DEFAULT_VOICE_ID = 'onwK4e9ZLuTAKqWW03F9'; // Daniel — deep British male
 const MODEL_ID = 'eleven_turbo_v2';
 const VOICE_SPEED = 1.15;
 
