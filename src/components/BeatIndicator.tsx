@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useAppStore } from '../store/appStore';
+import { VISUAL_BEATS } from '../engine/patterns';
 
 // ---------------------------------------------------------------------------
 // Beat grid layout
@@ -22,6 +23,9 @@ const STEP_LABELS: string[] = [
 const BeatIndicator: React.FC = () => {
   const currentStep = useAppStore((s) => s.currentStep);
   const isPlaying = useAppStore((s) => s.isPlaying);
+  const mode = useAppStore((s) => s.mode);
+
+  const visualBeats = VISUAL_BEATS[mode] ?? [];
 
   return (
     <View style={styles.container}>
@@ -29,21 +33,27 @@ const BeatIndicator: React.FC = () => {
         {STEP_LABELS.map((label, index) => {
           const isMainBeat = index % 2 === 0;
           const isCurrent = isPlaying && currentStep === index;
+          const isCountBeat = isCurrent && visualBeats.includes(index);
 
           return (
             <View key={index} style={styles.stepWrapper}>
-              <View
-                style={[
-                  styles.dot,
-                  isMainBeat ? styles.dotMain : styles.dotSub,
-                  isCurrent && (isMainBeat ? styles.dotCurrentMain : styles.dotCurrentSub),
-                ]}
-              />
+              {/* Fixed-size container prevents layout shift when dot size changes */}
+              <View style={styles.dotContainer}>
+                <View
+                  style={[
+                    styles.dot,
+                    isMainBeat ? styles.dotMain : styles.dotSub,
+                    isCurrent && !isCountBeat && (isMainBeat ? styles.dotCurrentMain : styles.dotCurrentSub),
+                    isCountBeat && styles.dotCountBeat,
+                  ]}
+                />
+              </View>
               <Text
                 style={[
                   styles.label,
                   isMainBeat ? styles.labelMain : styles.labelSub,
                   isCurrent && styles.labelCurrent,
+                  isCountBeat && styles.labelCountBeat,
                 ]}
               >
                 {label}
@@ -61,6 +71,7 @@ const BeatIndicator: React.FC = () => {
 // ---------------------------------------------------------------------------
 const DOT_MAIN = 14;
 const DOT_SUB = 8;
+const DOT_COUNT_BEAT = 22;
 
 const styles = StyleSheet.create({
   container: {
@@ -77,10 +88,18 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
+  // Fixed-size wrapper so the layout never shifts when dots resize
+  dotContainer: {
+    width: DOT_COUNT_BEAT,
+    height: DOT_COUNT_BEAT,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+
   // Dot base
   dot: {
     borderRadius: 100,
-    marginBottom: 4,
   },
 
   // Main beat dot (larger)
@@ -104,7 +123,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.8,
     shadowRadius: 8,
-    elevation: 4,
   },
 
   // Active subdivision (warm orange)
@@ -114,7 +132,17 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.7,
     shadowRadius: 6,
-    elevation: 3,
+  },
+
+  // Count beat — big bright flash for steps where the dancer counts
+  dotCountBeat: {
+    width: DOT_COUNT_BEAT,
+    height: DOT_COUNT_BEAT,
+    backgroundColor: '#ffffff',
+    shadowColor: '#ffffff',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1.0,
+    shadowRadius: 14,
   },
 
   // Label base
@@ -139,6 +167,13 @@ const styles = StyleSheet.create({
   // Active step label
   labelCurrent: {
     color: '#ffffff',
+  },
+
+  // Count beat label — bold white
+  labelCountBeat: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '900',
   },
 });
 

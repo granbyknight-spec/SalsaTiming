@@ -54,13 +54,14 @@ export const voicePatterns: Record<TimingMode, Pattern> = {
 
   /**
    * On2 Soft Mambo (Eddie Torres style):
-   * Individual word cues on each beat — each word is triggered exactly on the
-   * grid so timing aligns with the BPM. The sequencer lets each sample play
-   * to natural completion (no early cutoff).
+   * Full counting phrases — a single audio file plays the entire count.
+   * '&123' = "and one, two, three" triggered at position 0.
+   * '&567' = "and five, six, seven" triggered at position 8.
+   * Visual beat flashing is handled separately via VISUAL_BEATS.
    */
   on2_soft_mambo: [
-    '&1', null, '2', null, '3', null, null, null,
-    '&5', null, '6', null, '7', null, null, null,
+    '&123', null, null, null, null, null, null, null,
+    '&567', null, null, null, null, null, null, null,
   ],
 
   /**
@@ -88,6 +89,21 @@ export const VOICE_FILE_MAP: Record<string, string> = {
   '8':    'voice_eight',
   '&1':   'voice_and_one',
   '&5':   'voice_and_five',
+  '&123': 'voice_and_one_two_three',
+  '&567': 'voice_and_five_six_seven',
+};
+
+// ---------------------------------------------------------------------------
+// Visual beat steps — step indices that should flash prominently in the UI.
+// For phrase-based modes (soft mambo) the voice only triggers once per half-bar,
+// but the beat indicator should still pulse on each count beat so the dancer
+// can visually follow the rhythm.
+// ---------------------------------------------------------------------------
+export const VISUAL_BEATS: Record<TimingMode, number[]> = {
+  on1:              [0, 2, 4, 8, 10, 12],       // 1, 2, 3, 5, 6, 7
+  on2_son:          [2, 4, 6, 10, 12, 14],       // 2, 3, 4, 6, 7, 8
+  on2_soft_mambo:   [0, 2, 4, 8, 10, 12],        // &1, 2, 3, &5, 6, 7
+  on2_hard_mambo:   [0, 2, 4, 8, 10, 12],        // 1, 2, 3, 5, 6, 7
 };
 
 // ---------------------------------------------------------------------------
