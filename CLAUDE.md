@@ -32,3 +32,21 @@ When implementing code, always stand up expert parallel agents — each speciali
 3. **You are the orchestrator at all times.** You delegate, coordinate, and integrate — you do not do leaf-level work yourself when an expert agent can do it better and faster.
 4. **Maximize parallelism.** Launch all agents that have no dependencies on each other in a single batch. Only serialize work that has true data dependencies.
 5. **Confirm integration.** After parallel agents complete, verify that their outputs combine correctly before moving on.
+
+### Post-Fix Review Protocol
+
+After every code fix or feature implementation that touches audio engine, patterns, or sequencer code, automatically stand up an Opus review team **before committing**. Do not skip this step.
+
+**Review team composition (2–3 parallel agents):**
+
+- **Audio engine expert:** Reviews Tone.js usage, timing accuracy, sample loading, playback logic, and Safari AudioContext compliance.
+- **Musical correctness expert:** Reviews rhythm patterns, beat alignment, dance timing accuracy, and pattern data integrity.
+- **Deployment/performance expert:** Reviews asset loading, bundle size, dead code, and Safari iOS compatibility.
+
+**Process:**
+
+1. All three agents review the changed files simultaneously.
+2. Every issue found by the review team must be fixed before committing.
+3. After fixes are applied, run a brief verification review to confirm the fixes are correct and introduce no regressions.
+4. Only after the verification review passes should the code be committed and pushed.
+5. This protocol eliminates the need for the user to manually test every change on their phone. The review team is the quality gate.
