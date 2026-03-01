@@ -54,14 +54,13 @@ export const voicePatterns: Record<TimingMode, Pattern> = {
 
   /**
    * On2 Soft Mambo (Eddie Torres style):
-   * Full counting phrases — a single audio file plays the entire count.
-   * '&123' = "and one, two, three" triggered at position 0.
-   * '&567' = "and five, six, seven" triggered at position 8.
-   * The phrase plays naturally over the beats without being cut off.
+   * Individual word cues on each beat — each word is triggered exactly on the
+   * grid so timing aligns with the BPM. The sequencer lets each sample play
+   * to natural completion (no early cutoff).
    */
   on2_soft_mambo: [
-    '&123', null, null, null, null, null, null, null,
-    '&567', null, null, null, null, null, null, null,
+    '&1', null, '2', null, '3', null, null, null,
+    '&5', null, '6', null, '7', null, null, null,
   ],
 
   /**
