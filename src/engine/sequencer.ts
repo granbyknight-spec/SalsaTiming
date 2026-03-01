@@ -15,8 +15,10 @@ import {
   voicePatterns,
   VOICE_FILE_MAP,
   voiceEmphasis,
-  VOICE_SPEED_OVERRIDES,
-  VOICE_REFERENCE_BPM,
+  VOICE_TIERS,
+  getVoiceTier,
+  computePlaybackRate,
+  voicePlayerKey,
   type TimingMode,
 } from './patterns';
 import { appStore } from '../store/appStore';
@@ -36,8 +38,8 @@ let cowbellSynth: Tone.MetalSynth | null = null;
 let congaSlapPlayer: Tone.Player | null = null;
 let congaOpenPlayer: Tone.Player | null = null;
 
-/** Voice players keyed by the raw cue string ('1', '&1', etc.) */
-const voicePlayers: Map<string, Tone.GrainPlayer> = new Map();
+/** Voice players keyed by "tierSuffix:cue" (e.g. ":1", "_slow:1", "_fast:&5") */
+const voicePlayers: Map<string, Tone.Player> = new Map();
 
 /** Gain nodes for per-track volume control */
 let cowbellGain: Tone.Gain | null = null;
@@ -51,7 +53,7 @@ let sequence: Tone.Sequence | null = null;
 let currentStep = 0;
 
 /** Last voice player that was triggered — used to cut off tails before the next cue */
-let lastVoicePlayer: Tone.GrainPlayer | null = null;
+let lastVoicePlayer: Tone.Player | null = null;
 
 /** Whether initSequencer() has completed successfully */
 let initialized = false;
@@ -106,25 +108,6 @@ async function safeLoadPlayer(url: string): Promise<Tone.Player | null> {
     return player;
   } catch {
     console.warn(`[sequencer] could not load sample: ${url}`);
-    return null;
-  }
-}
-
-/**
- * Load a Tone.GrainPlayer for pitch-preserving time-stretch playback.
- * grainSize and overlap are tuned for short speech cues.
- */
-async function safeLoadGrainPlayer(url: string): Promise<Tone.GrainPlayer | null> {
-  try {
-    const player = new Tone.GrainPlayer({
-      url,
-      grainSize: 0.1,
-      overlap: 0.05,
-    });
-    await Tone.loaded();
-    return player;
-  } catch {
-    console.warn(`[sequencer] could not load grain player: ${url}`);
     return null;
   }
 }
@@ -191,26 +174,32 @@ export async function initSequencer(): Promise<void> {
 }
 
 /**
- * Load voice cue samples from the assets/samples directory.
- * Each entry in VOICE_FILE_MAP becomes a Tone.Player keyed by the cue string.
- * These are the espeak fallback files shipped with the app.
+ * Load voice cue samples from assets/samples for all speed tiers.
+ * Files follow the pattern: voice_one.mp3 (normal), voice_one_slow.mp3, voice_one_fast.mp3
  */
 async function loadVoiceSamples(): Promise<void> {
   const entries = Object.entries(VOICE_FILE_MAP);
-  const results = await Promise.allSettled(
-    entries.map(async ([cue, filename]) => {
-      const url = `${SAMPLE_BASE}/${filename}.mp3`;
-      const player = await safeLoadGrainPlayer(url);
-      if (player && voiceGain) {
-        player.connect(voiceGain);
-        voicePlayers.set(cue, player);
-      }
-    }),
-  );
+  const loadPromises: Promise<void>[] = [];
 
-  // Consider voice ready if at least one file loaded successfully
+  for (const tier of VOICE_TIERS) {
+    for (const [cue, filename] of entries) {
+      loadPromises.push(
+        (async () => {
+          const url = `${SAMPLE_BASE}/${filename}${tier.suffix}.mp3`;
+          const player = await safeLoadPlayer(url);
+          if (player && voiceGain) {
+            player.connect(voiceGain);
+            voicePlayers.set(voicePlayerKey(tier, cue), player);
+          }
+        })(),
+      );
+    }
+  }
+
+  const results = await Promise.allSettled(loadPromises);
   voiceSamplesReady =
     results.some((r) => r.status === 'fulfilled') && voicePlayers.size > 0;
+  diag(`Voice samples loaded: ${voicePlayers.size} players across ${VOICE_TIERS.length} tiers`);
 }
 
 /**
@@ -222,19 +211,26 @@ async function loadVoiceSamples(): Promise<void> {
  *               and values are blob URLs (e.g. blob:http://…)
  */
 export async function loadVoiceFromUrls(urls: Map<string, string>): Promise<void> {
+  // Blob URLs from browser cache are single-tier — load into all tier slots
+  // so they work regardless of BPM (with some pitch shift at extremes)
+  const normalTier = VOICE_TIERS.find((t) => t.suffix === '') ?? VOICE_TIERS[0];
   const results = await Promise.allSettled(
     Array.from(urls.entries()).map(async ([cue, blobUrl]) => {
-      // Dispose of any existing player for this cue
-      const existing = voicePlayers.get(cue);
-      if (existing) {
-        existing.dispose();
-        voicePlayers.delete(cue);
+      // Load into all tier slots so tier selection always finds something
+      for (const tier of VOICE_TIERS) {
+        const key = voicePlayerKey(tier, cue);
+        const existing = voicePlayers.get(key);
+        if (existing) {
+          existing.dispose();
+          voicePlayers.delete(key);
+        }
       }
 
-      const player = await safeLoadGrainPlayer(blobUrl);
+      const player = await safeLoadPlayer(blobUrl);
       if (player && voiceGain) {
         player.connect(voiceGain);
-        voicePlayers.set(cue, player);
+        // Put in normal tier; other tiers fall back to this
+        voicePlayers.set(voicePlayerKey(normalTier, cue), player);
       }
     }),
   );
@@ -297,28 +293,30 @@ function onStep(time: number, stepIndex: number): void {
     congaOpenPlayer.start(time);
   }
 
-  // --- Voice (mode-aware, pitch-preserving time-stretch, with emphasis) ---
+  // --- Voice (mode-aware, tier-based tempo adaptation) ---
   const currentMode: TimingMode = mode ?? 'on1';
   const voiceHit = voicePatterns[currentMode]?.[stepIndex];
   if (voiceHit && voiceSamplesReady) {
-    const player = voicePlayers.get(voiceHit);
-    if (player?.loaded) {
-      // Tempo-adaptive playback rate (GrainPlayer: changes speed, preserves pitch)
-      const currentBpm = Tone.getTransport().bpm.value;
-      let rate = currentBpm / VOICE_REFERENCE_BPM;
+    const currentBpm = Tone.getTransport().bpm.value;
+    const tier = getVoiceTier(currentBpm);
 
-      // Extra speed for compound cues (&1, &5) so they don't bleed
-      const speedOverride = VOICE_SPEED_OVERRIDES[voiceHit];
-      if (speedOverride) {
-        rate *= speedOverride;
+    // Try the best tier, fall back to normal tier if missing
+    let player = voicePlayers.get(voicePlayerKey(tier, voiceHit));
+    let activeTier = tier;
+    if (!player?.loaded) {
+      const normalTier = VOICE_TIERS.find((t) => t.suffix === '');
+      if (normalTier) {
+        player = voicePlayers.get(voicePlayerKey(normalTier, voiceHit));
+        activeTier = normalTier;
       }
+    }
 
-      // Clamp to GrainPlayer's clean range to avoid granular artifacts
-      rate = Math.max(0.5, Math.min(rate, 2.0));
+    if (player?.loaded) {
+      // Playback rate: ratio of current BPM to the tier's reference BPM.
+      // Within a tier the ratio stays close to 1.0, so pitch shift is minimal.
+      player.playbackRate = computePlaybackRate(currentBpm, activeTier, voiceHit);
 
-      player.playbackRate = rate;
-
-      // Emphasis: apply per-player volume (dB) instead of shared gain node
+      // Emphasis: per-player volume (dB) — avoids clipping on shared gain node
       const emphasis = voiceEmphasis[currentMode]?.[voiceHit] ?? 1.0;
       player.volume.value = emphasis !== 1.0 ? 20 * Math.log10(emphasis) : 0;
 

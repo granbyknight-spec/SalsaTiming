@@ -16,7 +16,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install FFmpeg (for silence trimming)
+      - name: Install FFmpeg (for phrase slicing)
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
 
       - name: Generate voice samples via ElevenLabs API
@@ -24,13 +24,18 @@ jobs:
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
         run: node scripts/generateVoices.js
 
-      - name: Verify all 10 voice files exist
+      - name: Verify all voice files exist (3 tiers x 10 cues = 30 files)
         run: |
-          for f in voice_one voice_two voice_three voice_four voice_five \
-                   voice_six voice_seven voice_eight voice_and_one voice_and_five; do
-            test -f "docs/assets/samples/${f}.mp3" || { echo "Missing: ${f}.mp3"; exit 1; }
+          count=0
+          for suffix in "" "_slow" "_fast"; do
+            for f in voice_one voice_two voice_three voice_four voice_five \
+                     voice_six voice_seven voice_eight voice_and_one voice_and_five; do
+              file="docs/assets/samples/${f}${suffix}.mp3"
+              test -f "$file" || { echo "Missing: ${f}${suffix}.mp3"; exit 1; }
+              count=$((count + 1))
+            done
           done
-          echo "All 10 voice files verified."
+          echo "All $count voice files verified."
           ls -la docs/assets/samples/voice_*.mp3
 
       - name: Commit and push generated voice samples
@@ -39,5 +44,5 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add assets/samples/voice_*.mp3 docs/assets/samples/voice_*.mp3
           git diff --cached --quiet && echo "No changes to commit" && exit 0
-          git commit -m "Generate ElevenLabs voice samples (Daniel voice, speed 1.15)"
+          git commit -m "Generate ElevenLabs voice samples (Daniel, 3 tiers, phrase-sliced)"
           git push

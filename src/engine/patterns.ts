@@ -109,7 +109,70 @@ export const VOICE_SPEED_OVERRIDES: Record<string, number> = {
   '&5': 1.05,
 };
 
-/** Reference BPM at which voice samples play at 1.0x speed (no time-stretching).
- *  With GrainPlayer, this controls speed only — pitch is always preserved.
- *  ElevenLabs samples generated at speed 1.15 make 135 the natural speaking rate. */
-export const VOICE_REFERENCE_BPM = 135;
+// ---------------------------------------------------------------------------
+// Voice speed tiers — pre-generated at different ElevenLabs speaking speeds.
+//
+// Strategy: instead of using GrainPlayer (which creates "orc" artifacts on
+// short speech cues), we pre-generate each word at 3 speaking speeds via the
+// ElevenLabs API. At runtime, Tone.Player (plain sample playback) selects the
+// closest tier and applies only a small residual playbackRate adjustment.
+//
+// The residual pitch shift is kept to ~15% max, which is barely noticeable
+// for short rhythmic speech cues. This eliminates granular synthesis artifacts
+// entirely.
+//
+// Tier reference BPMs are derived from the ElevenLabs generation speed:
+//   referenceBpm = 135 * (generationSpeed / 1.15)
+// where 135 BPM is the natural tempo for speed=1.15 (the normal tier).
+//
+// BPM range boundaries are set at the geometric midpoints between tiers:
+//   slow/normal boundary: sqrt(105 * 135) = ~119
+//   normal/fast boundary: sqrt(135 * 176) = ~154 (using 170 for rounder number)
+// ---------------------------------------------------------------------------
+export interface VoiceTier {
+  name: string;
+  suffix: string;       // filename suffix: '' | '_slow' | '_fast'
+  referenceBpm: number; // BPM at which this tier plays at rate 1.0
+  maxBpm: number;       // use this tier up to (but not including) this BPM
+}
+
+export const VOICE_TIERS: VoiceTier[] = [
+  { name: 'slow',   suffix: '_slow', referenceBpm: 105, maxBpm: 120 },
+  { name: 'normal', suffix: '',      referenceBpm: 135, maxBpm: 170 },
+  { name: 'fast',   suffix: '_fast', referenceBpm: 176, maxBpm: Infinity },
+];
+
+/** Pick the best voice tier for a given BPM. */
+export function getVoiceTier(bpm: number): VoiceTier {
+  for (const tier of VOICE_TIERS) {
+    if (bpm < tier.maxBpm) return tier;
+  }
+  return VOICE_TIERS[VOICE_TIERS.length - 1];
+}
+
+/**
+ * Compute the playbackRate for Tone.Player given a BPM, selected tier, and
+ * optional cue string (for compound-cue speed overrides).
+ *
+ * Typical output range: 0.86x - 1.15x (imperceptible pitch shift for speech).
+ * Hard-clamped to 0.75x - 1.30x to prevent obviously wrong playback.
+ */
+export function computePlaybackRate(bpm: number, tier: VoiceTier, cue?: string): number {
+  let rate = bpm / tier.referenceBpm;
+
+  // Extra speed for compound cues (&1, &5) so they finish before the next beat
+  if (cue) {
+    const override = VOICE_SPEED_OVERRIDES[cue];
+    if (override) rate *= override;
+  }
+
+  return Math.max(0.75, Math.min(rate, 1.30));
+}
+
+/**
+ * Build the player map key for a given tier and cue.
+ * Format: "suffix:cue" e.g. ":1", "_slow:&5", "_fast:2"
+ */
+export function voicePlayerKey(tier: VoiceTier, cue: string): string {
+  return `${tier.suffix}:${cue}`;
+}

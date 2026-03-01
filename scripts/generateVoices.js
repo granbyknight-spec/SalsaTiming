@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 // ---------------------------------------------------------------------------
-// generateVoices.js — Generate all salsa timing voice samples via ElevenLabs
+// generateVoices.js — Generate salsa timing voice samples via ElevenLabs
+//
+// Strategy: Generate full counting phrases (not individual words) so every
+// number shares the same voice timbre and prosody context. Use the ElevenLabs
+// "with_timestamps" output format to get word-level alignment, then slice
+// individual words out with FFmpeg. Generate at 3 speed tiers for tempo
+// adaptation without excessive pitch-shifting.
 //
 // Usage:
 //   node scripts/generateVoices.js                        # reads ELEVENLABS_API_KEY from env
@@ -12,31 +18,55 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 // ---------------------------------------------------------------------------
-// Configuration (mirrors src/audio/elevenlabs.ts)
+// Configuration
 // ---------------------------------------------------------------------------
 
 const ELEVENLABS_API_BASE = 'https://api.elevenlabs.io/v1';
 const VOICE_ID = 'onwK4e9ZLuTAKqWW03F9'; // Daniel — deep authoritative British male
 const MODEL_ID = 'eleven_turbo_v2';
-const VOICE_SETTINGS = { stability: 0.75, similarity_boost: 0.75 };
-const VOICE_SPEED = 1.15; // Slightly faster speech for crisper, shorter samples
+const VOICE_SETTINGS = { stability: 0.85, similarity_boost: 0.85 };
+// Bumped stability and similarity for more consistent output across tiers
+
+const EXPECTED_VOICE_NAME = 'Daniel';
 
 // ---------------------------------------------------------------------------
-// Voice file map (mirrors src/engine/patterns.ts VOICE_FILE_MAP)
+// Speed tiers — each generates a complete set of voice samples
 // ---------------------------------------------------------------------------
 
-const VOICE_FILE_MAP = {
-  '1':  { filename: 'voice_one.mp3',      text: 'one' },
-  '2':  { filename: 'voice_two.mp3',      text: 'TWO!' },
-  '3':  { filename: 'voice_three.mp3',    text: 'three' },
-  '4':  { filename: 'voice_four.mp3',     text: 'four' },
-  '5':  { filename: 'voice_five.mp3',     text: 'five' },
-  '6':  { filename: 'voice_six.mp3',      text: 'SIX!' },
-  '7':  { filename: 'voice_seven.mp3',    text: 'seven' },
-  '8':  { filename: 'voice_eight.mp3',    text: 'eight' },
-  '&1': { filename: 'voice_and_one.mp3',  text: 'and-one' },
-  '&5': { filename: 'voice_and_five.mp3', text: 'and-five' },
+const SPEED_TIERS = [
+  { name: 'slow',   speed: 0.90, suffix: '_slow'   },
+  { name: 'normal', speed: 1.15, suffix: ''         }, // default tier, no suffix for backwards compat
+  { name: 'fast',   speed: 1.50, suffix: '_fast'    },
+];
+
+// ---------------------------------------------------------------------------
+// Phrases to generate — words are extracted by timestamp alignment
+// ---------------------------------------------------------------------------
+
+// Main counting phrase: all 8 numbers in one utterance.
+// Commas add natural pauses that make word boundaries clearer.
+const MAIN_PHRASE = 'one, two, three, four, five, six, seven, eight';
+
+// Compound cues (and-one, and-five) as a separate phrase.
+const COMPOUND_PHRASE = 'and one, and five';
+
+// Map from word (as it appears in alignment) to output filename stem
+const WORD_TO_FILE = {
+  'one':   'voice_one',
+  'two':   'voice_two',
+  'three': 'voice_three',
+  'four':  'voice_four',
+  'five':  'voice_five',
+  'six':   'voice_six',
+  'seven': 'voice_seven',
+  'eight': 'voice_eight',
 };
+
+// For compound phrase, we extract pairs: "and one" -> voice_and_one, "and five" -> voice_and_five
+const COMPOUND_EXTRACTIONS = [
+  { words: ['and', 'one'],  filename: 'voice_and_one'  },
+  { words: ['and', 'five'], filename: 'voice_and_five' },
+];
 
 // Output directories (relative to project root)
 const OUTPUT_DIRS = [
@@ -44,78 +74,75 @@ const OUTPUT_DIRS = [
   path.resolve(__dirname, '..', 'docs', 'assets', 'samples'),
 ];
 
+// Temp directory for intermediate files
+const TEMP_DIR = path.resolve(__dirname, '..', '_voice_gen_tmp');
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Parse the API key from CLI args (--key <value>) or the ELEVENLABS_API_KEY
- * environment variable.
- */
 function resolveApiKey() {
   const args = process.argv.slice(2);
   const keyFlagIndex = args.indexOf('--key');
-
   if (keyFlagIndex !== -1 && args[keyFlagIndex + 1]) {
     return args[keyFlagIndex + 1];
   }
-
   return process.env.ELEVENLABS_API_KEY;
 }
 
-/**
- * Ensure all output directories exist, creating them recursively if needed.
- */
+function ensureDir(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+}
+
 function ensureOutputDirs() {
   for (const dir of OUTPUT_DIRS) {
-    fs.mkdirSync(dir, { recursive: true });
+    ensureDir(dir);
+  }
+  ensureDir(TEMP_DIR);
+}
+
+function cleanupTemp() {
+  try {
+    fs.rmSync(TEMP_DIR, { recursive: true, force: true });
+  } catch {
+    // best-effort cleanup
   }
 }
 
-/** Expected voice name — generation aborts if the API returns a different name. */
-const EXPECTED_VOICE_NAME = 'Daniel';
-
-/**
- * Pre-flight check: call GET /v1/voices/{voice_id} and confirm the voice name
- * matches what we expect. Aborts the script if the voice ID is wrong or expired.
- */
 async function verifyVoice(apiKey) {
   const url = `${ELEVENLABS_API_BASE}/voices/${VOICE_ID}`;
-
   const response = await fetch(url, {
     headers: { 'xi-api-key': apiKey },
   });
-
   if (!response.ok) {
     const body = await response.text().catch(() => '');
     throw new Error(
       `Voice verification failed (${response.status}): could not fetch voice ${VOICE_ID}.\n${body}`,
     );
   }
-
   const data = await response.json();
   const name = data.name || '(unnamed)';
-
   if (!name.toLowerCase().includes(EXPECTED_VOICE_NAME.toLowerCase())) {
     throw new Error(
-      `Voice mismatch! Expected "${EXPECTED_VOICE_NAME}" but API returned "${name}" for ID ${VOICE_ID}.\n` +
-      `Update VOICE_ID or EXPECTED_VOICE_NAME before generating.`,
+      `Voice mismatch! Expected "${EXPECTED_VOICE_NAME}" but API returned "${name}" for ID ${VOICE_ID}.`,
     );
   }
-
   console.log(`Voice verified: "${name}" (${VOICE_ID})\n`);
 }
 
 /**
- * Call the ElevenLabs TTS endpoint and return the audio as a Buffer.
+ * Generate speech WITH word-level timestamps using ElevenLabs API.
+ * Returns { audioBuffer: Buffer, alignment: { words: [...] } }
+ *
+ * The alignment response contains character-level data. We parse word
+ * boundaries from the characters array.
  */
-async function generateSpeech(text, apiKey) {
-  const url = `${ELEVENLABS_API_BASE}/text-to-speech/${VOICE_ID}`;
+async function generateSpeechWithTimestamps(text, speed, apiKey) {
+  const url = `${ELEVENLABS_API_BASE}/text-to-speech/${VOICE_ID}/with-timestamps`;
 
   const response = await fetch(url, {
     method: 'POST',
     headers: {
-      'Accept': 'audio/mpeg',
       'Content-Type': 'application/json',
       'xi-api-key': apiKey,
     },
@@ -123,67 +150,97 @@ async function generateSpeech(text, apiKey) {
       text,
       model_id: MODEL_ID,
       voice_settings: VOICE_SETTINGS,
-      speed: VOICE_SPEED,
+      speed,
+      output_format: 'mp3_44100_128',
     }),
   });
 
   if (!response.ok) {
     let errorBody;
-    try {
-      errorBody = await response.text();
-    } catch {
-      errorBody = 'Unable to read error response body';
-    }
-
-    if (response.status === 401) {
-      throw new Error(
-        `Authentication failed (401). Your API key is invalid or expired.\n` +
-        `Response: ${errorBody}`,
-      );
-    }
-    if (response.status === 429) {
-      throw new Error(
-        `Rate limited (429). Wait a moment and try again.\n` +
-        `Response: ${errorBody}`,
-      );
-    }
-    throw new Error(
-      `ElevenLabs API error (${response.status}): ${errorBody}`,
-    );
+    try { errorBody = await response.text(); } catch { errorBody = '(unreadable)'; }
+    throw new Error(`ElevenLabs API error (${response.status}): ${errorBody}`);
   }
 
-  const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  const data = await response.json();
+
+  // The response has: audio_base64, alignment (with characters, character_start_times_seconds,
+  // character_end_times_seconds)
+  const audioBuffer = Buffer.from(data.audio_base64, 'base64');
+  const alignment = data.alignment;
+
+  return { audioBuffer, alignment };
 }
 
 /**
- * Trim leading and trailing silence from an MP3 buffer using FFmpeg.
- * Falls back to the original buffer if FFmpeg is not available.
+ * Parse word boundaries from the character-level alignment data.
+ * Returns array of { word: string, startTime: number, endTime: number }
  */
-function trimSilence(buffer, filename) {
-  const tmpIn = path.join(OUTPUT_DIRS[0], `_raw_${filename}`);
-  const tmpOut = path.join(OUTPUT_DIRS[0], `_trimmed_${filename}`);
+function parseWordBoundaries(alignment) {
+  const chars = alignment.characters;
+  const starts = alignment.character_start_times_seconds;
+  const ends = alignment.character_end_times_seconds;
 
-  try {
-    fs.writeFileSync(tmpIn, buffer);
+  const words = [];
+  let currentWord = '';
+  let wordStart = null;
+  let wordEnd = null;
 
-    // silenceremove: strip leading silence (start_periods=1, start_threshold=-40dB)
-    // then reverse + strip trailing silence + reverse back
-    execSync(
-      `ffmpeg -y -i "${tmpIn}" -af "silenceremove=start_periods=1:start_threshold=-40dB,areverse,silenceremove=start_periods=1:start_threshold=-40dB,areverse" "${tmpOut}"`,
-      { stdio: 'pipe' },
-    );
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
 
-    const trimmed = fs.readFileSync(tmpOut);
-    return trimmed;
-  } catch {
-    console.warn(`  (silence trimming skipped — ffmpeg not available or failed)`);
-    return buffer;
-  } finally {
-    // Clean up temp files
-    try { fs.unlinkSync(tmpIn); } catch {}
-    try { fs.unlinkSync(tmpOut); } catch {}
+    if (ch === ' ' || ch === ',') {
+      // Word boundary — flush current word
+      if (currentWord.length > 0 && wordStart !== null) {
+        words.push({
+          word: currentWord.toLowerCase(),
+          startTime: wordStart,
+          endTime: wordEnd,
+        });
+        currentWord = '';
+        wordStart = null;
+        wordEnd = null;
+      }
+    } else {
+      currentWord += ch;
+      if (wordStart === null) {
+        wordStart = starts[i];
+      }
+      wordEnd = ends[i];
+    }
   }
+
+  // Flush last word
+  if (currentWord.length > 0 && wordStart !== null) {
+    words.push({
+      word: currentWord.toLowerCase(),
+      startTime: wordStart,
+      endTime: wordEnd,
+    });
+  }
+
+  return words;
+}
+
+/**
+ * Extract a time slice from an audio file using FFmpeg.
+ * Adds a small padding before/after the word boundary for natural attack/release.
+ * Returns the trimmed audio as a Buffer.
+ */
+function extractSlice(inputPath, startTime, endTime, outputPath) {
+  // Add small padding: 15ms before (catch consonant attacks), 40ms after (catch release)
+  const padBefore = 0.015;
+  const padAfter = 0.040;
+  const start = Math.max(0, startTime - padBefore);
+  const duration = (endTime + padAfter) - start;
+
+  execSync(
+    `ffmpeg -y -i "${inputPath}" -ss ${start.toFixed(4)} -t ${duration.toFixed(4)} ` +
+    `-af "afade=t=out:st=${(duration - 0.020).toFixed(4)}:d=0.020" ` +
+    `"${outputPath}"`,
+    { stdio: 'pipe' },
+  );
+
+  return fs.readFileSync(outputPath);
 }
 
 /**
@@ -204,7 +261,7 @@ function writeToAllOutputDirs(filename, buffer) {
 // ---------------------------------------------------------------------------
 
 async function main() {
-  console.log('=== SalsaTiming Voice Sample Generator ===\n');
+  console.log('=== SalsaTiming Voice Sample Generator (Phrase-Based) ===\n');
 
   // 1. Resolve API key
   const apiKey = resolveApiKey();
@@ -218,43 +275,116 @@ async function main() {
     process.exit(1);
   }
 
-  // 2. Verify we have the correct voice before spending API credits
+  // 2. Verify voice
   await verifyVoice(apiKey);
 
-  // 3. Ensure output directories exist
+  // 3. Ensure directories exist
   ensureOutputDirs();
   console.log('Output directories:');
-  for (const dir of OUTPUT_DIRS) {
-    console.log(`  ${dir}`);
-  }
+  for (const dir of OUTPUT_DIRS) console.log(`  ${dir}`);
   console.log();
 
-  // 4. Generate each voice sample sequentially to avoid rate limits
-  const entries = Object.entries(VOICE_FILE_MAP);
-  const total = entries.length;
-  let completed = 0;
+  let totalFiles = 0;
 
-  for (const [cue, { filename, text }] of entries) {
-    completed++;
-    const label = `[${completed}/${total}]`;
+  // 4. Generate each speed tier
+  for (const tier of SPEED_TIERS) {
+    console.log(`\n--- Speed tier: ${tier.name} (ElevenLabs speed=${tier.speed}) ---\n`);
 
-    process.stdout.write(`${label} Generating "${text}" -> ${filename} ... `);
+    // 4a. Generate the main counting phrase with timestamps
+    console.log(`  Generating main phrase: "${MAIN_PHRASE}" ...`);
+    const mainResult = await generateSpeechWithTimestamps(MAIN_PHRASE, tier.speed, apiKey);
+    const mainWords = parseWordBoundaries(mainResult.alignment);
 
-    try {
-      const rawBuffer = await generateSpeech(text, apiKey);
-      const audioBuffer = trimSilence(rawBuffer, filename);
+    console.log(`  Alignment found ${mainWords.length} words:`);
+    for (const w of mainWords) {
+      console.log(`    "${w.word}" ${w.startTime.toFixed(3)}s - ${w.endTime.toFixed(3)}s`);
+    }
+
+    // Write the full phrase to temp for FFmpeg slicing
+    const mainAudioPath = path.join(TEMP_DIR, `main_${tier.name}.mp3`);
+    fs.writeFileSync(mainAudioPath, mainResult.audioBuffer);
+
+    // 4b. Extract individual words from main phrase
+    for (const [word, fileStem] of Object.entries(WORD_TO_FILE)) {
+      const boundary = mainWords.find((w) => w.word === word);
+      if (!boundary) {
+        console.error(`  WARNING: word "${word}" not found in alignment! Skipping.`);
+        continue;
+      }
+
+      const filename = `${fileStem}${tier.suffix}.mp3`;
+      const slicePath = path.join(TEMP_DIR, filename);
+      const audioBuffer = extractSlice(mainAudioPath, boundary.startTime, boundary.endTime, slicePath);
       const paths = writeToAllOutputDirs(filename, audioBuffer);
-      const rawKB = (rawBuffer.length / 1024).toFixed(1);
       const sizeKB = (audioBuffer.length / 1024).toFixed(1);
-      console.log(`done (${rawKB} KB raw -> ${sizeKB} KB trimmed, written to ${paths.length} locations)`);
-    } catch (err) {
-      console.log('FAILED');
-      console.error(`\n  Error for cue "${cue}": ${err.message}\n`);
-      process.exit(1);
+      console.log(`  Extracted "${word}" -> ${filename} (${sizeKB} KB, ${paths.length} locations)`);
+      totalFiles++;
+    }
+
+    // 4c. Generate the compound phrase with timestamps
+    console.log(`\n  Generating compound phrase: "${COMPOUND_PHRASE}" ...`);
+    const compoundResult = await generateSpeechWithTimestamps(COMPOUND_PHRASE, tier.speed, apiKey);
+    const compoundWords = parseWordBoundaries(compoundResult.alignment);
+
+    console.log(`  Alignment found ${compoundWords.length} words:`);
+    for (const w of compoundWords) {
+      console.log(`    "${w.word}" ${w.startTime.toFixed(3)}s - ${w.endTime.toFixed(3)}s`);
+    }
+
+    const compoundAudioPath = path.join(TEMP_DIR, `compound_${tier.name}.mp3`);
+    fs.writeFileSync(compoundAudioPath, compoundResult.audioBuffer);
+
+    // 4d. Extract compound cues ("and one", "and five")
+    // These span two words each — we find the first word's start and second word's end
+    for (const extraction of COMPOUND_EXTRACTIONS) {
+      const firstWord = extraction.words[0];
+      const lastWord = extraction.words[extraction.words.length - 1];
+
+      // Find the matching pair in sequence
+      let startBoundary = null;
+      let endBoundary = null;
+
+      for (let i = 0; i < compoundWords.length; i++) {
+        if (compoundWords[i].word === firstWord &&
+            i + 1 < compoundWords.length &&
+            compoundWords[i + 1].word === lastWord) {
+          startBoundary = compoundWords[i];
+          endBoundary = compoundWords[i + 1];
+          // Remove matched words so second "and five" isn't confused with first "and one"
+          compoundWords.splice(i, 2);
+          break;
+        }
+      }
+
+      if (!startBoundary || !endBoundary) {
+        console.error(`  WARNING: compound "${extraction.words.join(' ')}" not found in alignment! Skipping.`);
+        continue;
+      }
+
+      const filename = `${extraction.filename}${tier.suffix}.mp3`;
+      const slicePath = path.join(TEMP_DIR, filename);
+      const audioBuffer = extractSlice(compoundAudioPath, startBoundary.startTime, endBoundary.endTime, slicePath);
+      const paths = writeToAllOutputDirs(filename, audioBuffer);
+      const sizeKB = (audioBuffer.length / 1024).toFixed(1);
+      console.log(`  Extracted "${extraction.words.join(' ')}" -> ${filename} (${sizeKB} KB, ${paths.length} locations)`);
+      totalFiles++;
+    }
+
+    // Brief delay between tiers to avoid rate limits
+    if (tier !== SPEED_TIERS[SPEED_TIERS.length - 1]) {
+      console.log('\n  Waiting 2s before next tier...');
+      await new Promise((r) => setTimeout(r, 2000));
     }
   }
 
-  console.log(`\nAll ${total} voice samples generated successfully.`);
+  // 5. Cleanup temp dir
+  cleanupTemp();
+
+  console.log(`\n=== Done! Generated ${totalFiles} voice files across ${SPEED_TIERS.length} speed tiers. ===`);
 }
 
-main();
+main().catch((err) => {
+  console.error(`\nFatal error: ${err.message}`);
+  cleanupTemp();
+  process.exit(1);
+});
