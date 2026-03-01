@@ -24,26 +24,87 @@ jobs:
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
         run: node scripts/generateVoices.js
 
-      - name: Verify all voice files exist (3 tiers x 12 cues = 36 files)
+      - name: Verify all 36 voice files exist and are non-trivial
         run: |
           count=0
+          failed=0
           for suffix in "" "_slow" "_fast"; do
             for f in voice_one voice_two voice_three voice_four voice_five \
                      voice_six voice_seven voice_eight voice_and_one voice_and_five \
                      voice_and_one_two_three voice_and_five_six_seven; do
               file="docs/assets/samples/${f}${suffix}.mp3"
-              test -f "$file" || { echo "Missing: ${f}${suffix}.mp3"; exit 1; }
+              if [ ! -f "$file" ]; then
+                echo "MISSING: ${f}${suffix}.mp3"
+                failed=1
+              else
+                size=$(wc -c < "$file")
+                if [ "$size" -lt 1000 ]; then
+                  echo "TOO SMALL: ${f}${suffix}.mp3 (${size} bytes — likely silent/corrupt)"
+                  failed=1
+                fi
+              fi
               count=$((count + 1))
             done
           done
-          echo "All $count voice files verified."
-          ls -la docs/assets/samples/voice_*.mp3
+          if [ "$failed" -eq 1 ]; then
+            echo "Verification FAILED — some files are missing or too small."
+            exit 1
+          fi
+          echo "All $count voice files verified (all > 1KB)."
 
-      - name: Commit and push generated voice samples
+          # Detect identical files (placeholders have the same hash)
+          echo ""
+          echo "Checking for duplicate files (placeholder detection)..."
+          cd docs/assets/samples
+          dupes=$(md5sum voice_one.mp3 voice_two.mp3 voice_three.mp3 voice_four.mp3 \
+                        voice_five.mp3 voice_six.mp3 voice_seven.mp3 voice_eight.mp3 \
+                  | sort | uniq -d -w 32 || true)
+          if [ -n "$dupes" ]; then
+            echo "WARNING: Some individual word files have identical hashes (possible placeholder):"
+            md5sum voice_one.mp3 voice_two.mp3 voice_three.mp3 voice_four.mp3 \
+                   voice_five.mp3 voice_six.mp3 voice_seven.mp3 voice_eight.mp3
+            exit 1
+          fi
+          echo "No duplicates — all individual word files are unique."
+
+      - name: Switch soft mambo to individual word cues and rebuild
+        run: |
+          # Replace phrase pattern with individual word cues
+          sed -i "s/'&123', null, null, null, null, null, null, null,/'\\&1', null, '2', null, '3', null, null, null,/" src/engine/patterns.ts
+          sed -i "s/'&567', null, null, null, null, null, null, null,/'\\&5', null, '6', null, '7', null, null, null,/" src/engine/patterns.ts
+
+          # Update the comment block
+          sed -i 's/Full counting phrases/Individual word cues on each beat/' src/engine/patterns.ts
+          sed -i "s/'\&123' = \"and one, two, three\" triggered at position 0./'\&1' at position 0, '2' at position 2, '3' at position 4./" src/engine/patterns.ts
+          sed -i "s/'\&567' = \"and five, six, seven\" triggered at position 8./'\&5' at position 8, '6' at position 10, '7' at position 12./" src/engine/patterns.ts
+          sed -i 's/Visual beat flashing is handled separately via VISUAL_BEATS./Each word lands exactly on the beat grid./' src/engine/patterns.ts
+
+          echo "Pattern updated. Verifying..."
+          grep -A 4 "on2_soft_mambo:" src/engine/patterns.ts
+
+          # Install deps and rebuild
+          npm ci
+          npx expo export --platform web
+
+          # Deploy new bundle to docs/
+          NEW_BUNDLE=$(ls dist/_expo/static/js/web/index-*.js)
+          BUNDLE_NAME=$(basename "$NEW_BUNDLE")
+          rm -f docs/expo/static/js/web/index-*.js
+          cp "$NEW_BUNDLE" docs/expo/static/js/web/
+          sed -i "s|expo/static/js/web/index-[^\"]*\.js|expo/static/js/web/${BUNDLE_NAME}|" docs/index.html
+          echo "Bundle deployed: $BUNDLE_NAME"
+
+      - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add assets/samples/voice_*.mp3 docs/assets/samples/voice_*.mp3
+          git add assets/samples/voice_*.mp3 docs/assets/samples/voice_*.mp3 \
+                  docs/expo/static/js/web/ docs/index.html src/engine/patterns.ts
           git diff --cached --quiet && echo "No changes to commit" && exit 0
-          git commit -m "Generate ElevenLabs voice samples (Daniel, 3 tiers, words + counting phrases)"
+          git commit -m "Regenerate voice samples + switch soft mambo to individual word cues
+
+          - Fresh ElevenLabs TTS audio for all 36 voice files (3 tiers x 12 cues)
+          - Individual words extracted from phrases via FFmpeg word-level timestamps
+          - Soft mambo pattern switched from phrases to individual word cues
+          - Web bundle rebuilt with updated pattern"
           git push
