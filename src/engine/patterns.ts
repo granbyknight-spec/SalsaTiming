@@ -96,7 +96,7 @@ export const VOICE_FILE_MAP: Record<string, string> = {
 // Values > 1.0 create a "spike" — louder than surrounding counts.
 // ---------------------------------------------------------------------------
 export const voiceEmphasis: Partial<Record<TimingMode, Record<string, number>>> = {
-  on2_soft_mambo: { '2': 1.5, '6': 1.5 },
+  on2_soft_mambo: { '2': 1.15, '6': 1.15 },
 };
 
 // ---------------------------------------------------------------------------
@@ -105,11 +105,11 @@ export const voiceEmphasis: Partial<Record<TimingMode, Record<string, number>>> 
 // before the next beat arrives.
 // ---------------------------------------------------------------------------
 export const VOICE_SPEED_OVERRIDES: Record<string, number> = {
-  '&1': 1.1,
-  '&5': 1.1,
+  '&1': 1.05,
+  '&5': 1.05,
 };
 
-/** Reference BPM at which voice samples sound natural without rate adjustment.
- *  Set to 135 (matching ElevenLabs speed:1.15) to reduce pitch-shifting at high tempos.
- *  At 180 BPM the ratio is 1.33x instead of 1.8x; at 220 BPM it is 1.63x instead of 2.2x. */
+/** Reference BPM at which voice samples play at 1.0x speed (no time-stretching).
+ *  With GrainPlayer, this controls speed only — pitch is always preserved.
+ *  ElevenLabs samples generated at speed 1.15 make 135 the natural speaking rate. */
 export const VOICE_REFERENCE_BPM = 135;

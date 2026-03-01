@@ -37,7 +37,7 @@ let congaSlapPlayer: Tone.Player | null = null;
 let congaOpenPlayer: Tone.Player | null = null;
 
 /** Voice players keyed by the raw cue string ('1', '&1', etc.) */
-const voicePlayers: Map<string, Tone.Player> = new Map();
+const voicePlayers: Map<string, Tone.GrainPlayer> = new Map();
 
 /** Gain nodes for per-track volume control */
 let cowbellGain: Tone.Gain | null = null;
@@ -51,7 +51,7 @@ let sequence: Tone.Sequence | null = null;
 let currentStep = 0;
 
 /** Last voice player that was triggered — used to cut off tails before the next cue */
-let lastVoicePlayer: Tone.Player | null = null;
+let lastVoicePlayer: Tone.GrainPlayer | null = null;
 
 /** Whether initSequencer() has completed successfully */
 let initialized = false;
@@ -106,6 +106,25 @@ async function safeLoadPlayer(url: string): Promise<Tone.Player | null> {
     return player;
   } catch {
     console.warn(`[sequencer] could not load sample: ${url}`);
+    return null;
+  }
+}
+
+/**
+ * Load a Tone.GrainPlayer for pitch-preserving time-stretch playback.
+ * grainSize and overlap are tuned for short speech cues.
+ */
+async function safeLoadGrainPlayer(url: string): Promise<Tone.GrainPlayer | null> {
+  try {
+    const player = new Tone.GrainPlayer({
+      url,
+      grainSize: 0.1,
+      overlap: 0.05,
+    });
+    await Tone.loaded();
+    return player;
+  } catch {
+    console.warn(`[sequencer] could not load grain player: ${url}`);
     return null;
   }
 }
@@ -181,7 +200,7 @@ async function loadVoiceSamples(): Promise<void> {
   const results = await Promise.allSettled(
     entries.map(async ([cue, filename]) => {
       const url = `${SAMPLE_BASE}/${filename}.mp3`;
-      const player = await safeLoadPlayer(url);
+      const player = await safeLoadGrainPlayer(url);
       if (player && voiceGain) {
         player.connect(voiceGain);
         voicePlayers.set(cue, player);
@@ -212,7 +231,7 @@ export async function loadVoiceFromUrls(urls: Map<string, string>): Promise<void
         voicePlayers.delete(cue);
       }
 
-      const player = await safeLoadPlayer(blobUrl);
+      const player = await safeLoadGrainPlayer(blobUrl);
       if (player && voiceGain) {
         player.connect(voiceGain);
         voicePlayers.set(cue, player);
@@ -278,13 +297,13 @@ function onStep(time: number, stepIndex: number): void {
     congaOpenPlayer.start(time);
   }
 
-  // --- Voice (mode-aware, tempo-adaptive, with emphasis) ---
+  // --- Voice (mode-aware, pitch-preserving time-stretch, with emphasis) ---
   const currentMode: TimingMode = mode ?? 'on1';
   const voiceHit = voicePatterns[currentMode]?.[stepIndex];
   if (voiceHit && voiceSamplesReady) {
     const player = voicePlayers.get(voiceHit);
     if (player?.loaded) {
-      // Tempo-adaptive playback rate: scale voice speed with BPM
+      // Tempo-adaptive playback rate (GrainPlayer: changes speed, preserves pitch)
       const currentBpm = Tone.getTransport().bpm.value;
       let rate = currentBpm / VOICE_REFERENCE_BPM;
 
@@ -294,18 +313,14 @@ function onStep(time: number, stepIndex: number): void {
         rate *= speedOverride;
       }
 
-      player.playbackRate = rate;
-      player.fadeOut = 0.02; // 20ms fade to soften cut-off
+      // Clamp to GrainPlayer's clean range to avoid granular artifacts
+      rate = Math.max(0.5, Math.min(rate, 2.0));
 
-      // Emphasis: temporarily boost voice gain for "spike" beats (e.g. 2 & 6)
+      player.playbackRate = rate;
+
+      // Emphasis: apply per-player volume (dB) instead of shared gain node
       const emphasis = voiceEmphasis[currentMode]?.[voiceHit] ?? 1.0;
-      if (voiceGain && emphasis !== 1.0) {
-        const baseVol = volumes?.voice ?? 0.9;
-        voiceGain.gain.setValueAtTime(baseVol * emphasis, time);
-        // Reset after one 16th note
-        const sixteenthSec = 60 / currentBpm / 4;
-        voiceGain.gain.setValueAtTime(baseVol, time + sixteenthSec);
-      }
+      player.volume.value = emphasis !== 1.0 ? 20 * Math.log10(emphasis) : 0;
 
       // Stop the previous voice cue so tails don't bleed under the new one
       if (lastVoicePlayer && lastVoicePlayer !== player) {
