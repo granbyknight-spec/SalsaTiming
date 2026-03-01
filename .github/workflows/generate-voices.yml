@@ -24,12 +24,13 @@ jobs:
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
         run: node scripts/generateVoices.js
 
-      - name: Verify all voice files exist (3 tiers x 10 cues = 30 files)
+      - name: Verify all voice files exist (3 tiers x 12 cues = 36 files)
         run: |
           count=0
           for suffix in "" "_slow" "_fast"; do
             for f in voice_one voice_two voice_three voice_four voice_five \
-                     voice_six voice_seven voice_eight voice_and_one voice_and_five; do
+                     voice_six voice_seven voice_eight voice_and_one voice_and_five \
+                     voice_and_one_two_three voice_and_five_six_seven; do
               file="docs/assets/samples/${f}${suffix}.mp3"
               test -f "$file" || { echo "Missing: ${f}${suffix}.mp3"; exit 1; }
               count=$((count + 1))
@@ -44,5 +45,5 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add assets/samples/voice_*.mp3 docs/assets/samples/voice_*.mp3
           git diff --cached --quiet && echo "No changes to commit" && exit 0
-          git commit -m "Generate ElevenLabs voice samples (Daniel, 3 tiers, phrase-sliced)"
+          git commit -m "Generate ElevenLabs voice samples (Daniel, 3 tiers, words + counting phrases)"
           git push

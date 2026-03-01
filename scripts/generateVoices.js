@@ -68,6 +68,15 @@ const COMPOUND_EXTRACTIONS = [
   { words: ['and', 'five'], filename: 'voice_and_five' },
 ];
 
+// ---------------------------------------------------------------------------
+// Full counting phrases — saved as complete audio files (no slicing).
+// These are used for modes where the voice counts over multiple beats.
+// ---------------------------------------------------------------------------
+const FULL_PHRASES = [
+  { text: 'and one, two, three', filename: 'voice_and_one_two_three' },
+  { text: 'and five, six, seven', filename: 'voice_and_five_six_seven' },
+];
+
 // Output directories (relative to project root)
 const OUTPUT_DIRS = [
   path.resolve(__dirname, '..', 'assets', 'samples'),
@@ -169,6 +178,39 @@ async function generateSpeechWithTimestamps(text, speed, apiKey) {
   const alignment = data.alignment;
 
   return { audioBuffer, alignment };
+}
+
+/**
+ * Generate speech as a plain audio buffer (no timestamps needed).
+ * Used for full counting phrases that are saved as-is.
+ */
+async function generateSpeech(text, speed, apiKey) {
+  const url = `${ELEVENLABS_API_BASE}/text-to-speech/${VOICE_ID}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'xi-api-key': apiKey,
+      'Accept': 'audio/mpeg',
+    },
+    body: JSON.stringify({
+      text,
+      model_id: MODEL_ID,
+      voice_settings: VOICE_SETTINGS,
+      speed,
+      output_format: 'mp3_44100_128',
+    }),
+  });
+
+  if (!response.ok) {
+    let errorBody;
+    try { errorBody = await response.text(); } catch { errorBody = '(unreadable)'; }
+    throw new Error(`ElevenLabs API error (${response.status}): ${errorBody}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
 }
 
 /**
@@ -367,6 +409,17 @@ async function main() {
       const paths = writeToAllOutputDirs(filename, audioBuffer);
       const sizeKB = (audioBuffer.length / 1024).toFixed(1);
       console.log(`  Extracted "${extraction.words.join(' ')}" -> ${filename} (${sizeKB} KB, ${paths.length} locations)`);
+      totalFiles++;
+    }
+
+    // 4e. Generate full counting phrases (saved as-is, no slicing)
+    for (const phrase of FULL_PHRASES) {
+      console.log(`\n  Generating full phrase: "${phrase.text}" ...`);
+      const audioBuffer = await generateSpeech(phrase.text, tier.speed, apiKey);
+      const filename = `${phrase.filename}${tier.suffix}.mp3`;
+      const paths = writeToAllOutputDirs(filename, audioBuffer);
+      const sizeKB = (audioBuffer.length / 1024).toFixed(1);
+      console.log(`  Saved "${phrase.text}" -> ${filename} (${sizeKB} KB, ${paths.length} locations)`);
       totalFiles++;
     }
 

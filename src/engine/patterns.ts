@@ -54,13 +54,14 @@ export const voicePatterns: Record<TimingMode, Pattern> = {
 
   /**
    * On2 Soft Mambo (Eddie Torres style):
-   * '&1' is a single audio cue ("and-one") triggered at position 0.
-   * '&5' is a single audio cue ("and-five") triggered at position 8.
-   * These are single audio files containing the full phrase.
+   * Full counting phrases — a single audio file plays the entire count.
+   * '&123' = "and one, two, three" triggered at position 0.
+   * '&567' = "and five, six, seven" triggered at position 8.
+   * The phrase plays naturally over the beats without being cut off.
    */
   on2_soft_mambo: [
-    '&1', null, '2', null, '3', null, null, null,
-    '&5', null, '6', null, '7', null, null, null,
+    '&123', null, null, null, null, null, null, null,
+    '&567', null, null, null, null, null, null, null,
   ],
 
   /**
@@ -78,16 +79,18 @@ export const voicePatterns: Record<TimingMode, Pattern> = {
 // (without extension; the sequencer appends .mp3)
 // ---------------------------------------------------------------------------
 export const VOICE_FILE_MAP: Record<string, string> = {
-  '1':  'voice_one',
-  '2':  'voice_two',
-  '3':  'voice_three',
-  '4':  'voice_four',
-  '5':  'voice_five',
-  '6':  'voice_six',
-  '7':  'voice_seven',
-  '8':  'voice_eight',
-  '&1': 'voice_and_one',
-  '&5': 'voice_and_five',
+  '1':    'voice_one',
+  '2':    'voice_two',
+  '3':    'voice_three',
+  '4':    'voice_four',
+  '5':    'voice_five',
+  '6':    'voice_six',
+  '7':    'voice_seven',
+  '8':    'voice_eight',
+  '&1':   'voice_and_one',
+  '&5':   'voice_and_five',
+  '&123': 'voice_and_one_two_three',
+  '&567': 'voice_and_five_six_seven',
 };
 
 // ---------------------------------------------------------------------------
@@ -96,7 +99,7 @@ export const VOICE_FILE_MAP: Record<string, string> = {
 // Values > 1.0 create a "spike" — louder than surrounding counts.
 // ---------------------------------------------------------------------------
 export const voiceEmphasis: Partial<Record<TimingMode, Record<string, number>>> = {
-  on2_soft_mambo: { '2': 1.15, '6': 1.15 },
+  // Soft mambo uses full phrases now — no per-cue emphasis needed
 };
 
 // ---------------------------------------------------------------------------
