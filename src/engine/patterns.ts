@@ -88,8 +88,6 @@ export const VOICE_FILE_MAP: Record<string, string> = {
   '8':    'voice_eight',
   '&1':   'voice_and_one',
   '&5':   'voice_and_five',
-  '&123': 'voice_and_one_two_three',
-  '&567': 'voice_and_five_six_seven',
 };
 
 // ---------------------------------------------------------------------------
@@ -98,7 +96,9 @@ export const VOICE_FILE_MAP: Record<string, string> = {
 // Values > 1.0 create a "spike" — louder than surrounding counts.
 // ---------------------------------------------------------------------------
 export const voiceEmphasis: Partial<Record<TimingMode, Record<string, number>>> = {
-  // Soft mambo uses full phrases now — no per-cue emphasis needed
+  // Hard Mambo: same count words as On1, but the break step is on 2 and 6.
+  // Emphasize those beats so the mode sounds audibly different from On1.
+  on2_hard_mambo: { '2': 1.4, '6': 1.4 },
 };
 
 // ---------------------------------------------------------------------------
