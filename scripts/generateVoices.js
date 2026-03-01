@@ -72,6 +72,40 @@ function ensureOutputDirs() {
   }
 }
 
+/** Expected voice name — generation aborts if the API returns a different name. */
+const EXPECTED_VOICE_NAME = 'Daniel';
+
+/**
+ * Pre-flight check: call GET /v1/voices/{voice_id} and confirm the voice name
+ * matches what we expect. Aborts the script if the voice ID is wrong or expired.
+ */
+async function verifyVoice(apiKey) {
+  const url = `${ELEVENLABS_API_BASE}/voices/${VOICE_ID}`;
+
+  const response = await fetch(url, {
+    headers: { 'xi-api-key': apiKey },
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(
+      `Voice verification failed (${response.status}): could not fetch voice ${VOICE_ID}.\n${body}`,
+    );
+  }
+
+  const data = await response.json();
+  const name = data.name || '(unnamed)';
+
+  if (!name.toLowerCase().includes(EXPECTED_VOICE_NAME.toLowerCase())) {
+    throw new Error(
+      `Voice mismatch! Expected "${EXPECTED_VOICE_NAME}" but API returned "${name}" for ID ${VOICE_ID}.\n` +
+      `Update VOICE_ID or EXPECTED_VOICE_NAME before generating.`,
+    );
+  }
+
+  console.log(`Voice verified: "${name}" (${VOICE_ID})\n`);
+}
+
 /**
  * Call the ElevenLabs TTS endpoint and return the audio as a Buffer.
  */
@@ -184,7 +218,10 @@ async function main() {
     process.exit(1);
   }
 
-  // 2. Ensure output directories exist
+  // 2. Verify we have the correct voice before spending API credits
+  await verifyVoice(apiKey);
+
+  // 3. Ensure output directories exist
   ensureOutputDirs();
   console.log('Output directories:');
   for (const dir of OUTPUT_DIRS) {
@@ -192,7 +229,7 @@ async function main() {
   }
   console.log();
 
-  // 3. Generate each voice sample sequentially to avoid rate limits
+  // 4. Generate each voice sample sequentially to avoid rate limits
   const entries = Object.entries(VOICE_FILE_MAP);
   const total = entries.length;
   let completed = 0;
